@@ -1,8 +1,8 @@
 {
   "name": "cretspec",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Een crossplatform werkruimte voor code, specificaties en gedeelde ontwikkelafspraken",
+  "description": "Clone projects from their specs with independently versioned development guidelines",
   "license": "MIT",
   "type": "module",
   "bin": { "cspec": "./bin/cspec.mjs" },
