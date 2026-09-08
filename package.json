@@ -1,0 +1,15 @@
+{
+  "name": "cretspec",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Een crossplatform werkruimte voor code, specificaties en gedeelde ontwikkelafspraken",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "cspec": "./bin/cspec.mjs" },
+  "engines": { "node": ">=22" },
+  "files": ["bin/", "src/", "schemas/", "docs/", "README.md", "CONTRIBUTING.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/cspec.mjs && node --check src/workspace.mjs && node --check src/config.mjs"
+  }
+}
