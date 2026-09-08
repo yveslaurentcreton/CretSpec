@@ -1,9 +1,9 @@
-# Repositorykoppelingen en versies
+# Project definition
 
-De projectspec is het vertrekpunt. De code-repository bevat geen terugverwijzing naar private ontwikkelinformatie.
+The spec repository is the only authoritative project definition.
 
 ```text
-Project-spec/
+Example-spec/
   project.json
   guidelines.lock.json
   spec/...
@@ -14,41 +14,55 @@ Project-spec/
 ```json
 {
   "schemaVersion": 1,
-  "name": "Project",
-  "code": { "repository": "../Project" },
-  "guidelines": { "repository": "../CretAI", "ref": "v0.1.0" },
+  "name": "Example",
+  "code": { "repository": "../Example" },
+  "guidelines": { "repository": "../CretAI", "ref": "v0.2.0" },
   "profile": "dotnet"
 }
 ```
 
-`name` benoemt het project. `code.repository` verwijst naar de zelfstandige code-repository. `guidelines.repository` verwijst naar de centrale afspraken. `guidelines.ref` kiest een richtlijnenversie, bij voorkeur een onveranderlijke releasetag. `profile` selecteert het bestand `profiles/<profiel>.md` in die richtlijnenversie.
+The name identifies the project and its local code directory. CretSpec places code next to the spec as `../Example/`. A portable name is required: start with a letter, use letters, digits, dots, underscores or hyphens, avoid trailing dots and Windows device names.
 
-Relatieve verwijzingen worden opgelost ten opzichte van de **bronlocatie van de spec-repository**. `../Project` bij `git@github.com:owner/Project-spec.git` wordt `git@github.com:owner/Project`. Voor een lokale spec-bron verwijst het naar de naastliggende map. De gekozen doelmap van de workspace verandert dit niet.
+code.repository identifies the code source. guidelines.repository identifies shared guidance. guidelines.ref selects a guidelines version, preferably an immutable release tag. profile selects `profiles/<profile>.md` in that version.
 
-Gebruik volledige HTTPS- of SSH-URLs bij verschillende eigenaars of servers. Lokale absolute paden zijn alleen geschikt voor lokale specs; een remote spec mag geen absoluut lokaal repositorypad aanwijzen. Bij `attach` bepaalt de origin van de spec de bronlocatie, met het lokale pad als fallback wanneer er geen origin is.
+Relative repository references are resolved against the **spec source**, independently of local folder placement. For `git@github.com:owner/Example-spec.git`, `../Example` resolves to `git@github.com:owner/Example`.
+
+Use full HTTPS or SSH URLs for different owners or servers. Remote specs cannot reference absolute local repositories. Local sources can use absolute paths for local trials.
 
 ## guidelines.lock.json
 
 ```json
 {
   "schemaVersion": 1,
-  "ref": "v0.1.0",
-  "commit": "VOLLEDIGE_COMMIT_VAN_DE_GEKOZEN_TAG"
+  "ref": "v0.2.0",
+  "commit": "FULL_COMMIT_ID_OF_THE_SELECTED_TAG"
 }
 ```
 
-Het voorbeeld bevat bewust een placeholder. Vul de volledige commit-ID in die `git rev-parse "v0.1.0^{commit}"` in de richtlijnenrepo teruggeeft. CretSpec controleert de gelijkheid van ref en commit en maakt een detached checkout op de exacte commit.
+Replace the placeholder with the complete result of `git rev-parse "v0.2.0^{commit}"` in the guidelines repository. CretSpec verifies that the fetched ref and commit agree and prepares a detached snapshot at that commit.
 
-De lock legt de richtlijnen vast, niet de CretSpec-installatie of de code- en spec-HEAD. CretSpec heeft zijn eigen pakketversie. Nieuwe code en specs volgen bij clonen hun standaardbranch; reeds bestaande clones worden niet bijgewerkt.
+This lock selects guidelines, not the CretSpec installation or code and spec revisions. Record implemented code commits or releases in the private spec when useful for traceability.
 
-## Wijzigingen overnemen
+## Finding the spec
 
-1. Werk richtlijnen uit in de centrale, bewerkbare clone.
-2. Commit en publiceer een nieuwe richtlijnentag zonder bestaande tags te verplaatsen.
-3. Kies expliciet welke projecten de nieuwe versie moeten gebruiken.
-4. Werk in hun specs zowel de manifestref als de lock bij.
-5. Maak een nieuwe workspace om de vastgelegde versie te gebruiken.
+```sh
+cspec project clone Example-spec
+```
 
-Een editorbestand, de persoonlijke configuratie en lokale workspaceadministratie worden niet in productcode geschreven. Spec- en codewijzigingen zijn afzonderlijke Git-commits: leg de relatie vast in de private spec wanneer gedrag is geïmplementeerd.
+The short name resolves in the configured guidelines repository's namespace. That is only a way to locate the spec; it is not a project registry. URLs and explicit local paths can address any accessible spec repository.
 
-De machineleesbare formaten staan in [project.schema.json](../schemas/project.schema.json) en [guidelines-lock.schema.json](../schemas/guidelines-lock.schema.json). Beide vereisen schemaVersion 1; onbekende manifest- of lockvelden worden geweigerd.
+Once cloned, run commands inside the spec or pass its directory. The tool locates project.json by walking up from that directory and reads the manifest and lock each time.
+
+## Generated local files
+
+Only the spec's ignored .local/ directory receives snapshots and optional editor files. There is no outer workspace marker, duplicate name, duplicate lock or project registry.
+
+The code directory is derived from the current manifest name. An editor file is generated by project open and can be recreated at any time. Existing non-folder editor settings are preserved; the folder list is rebuilt from the project definition.
+
+Moving the spec and code together preserves their relationship. Reopen the project to refresh the editor's relative path to the separately configured editable guidelines clone.
+
+When attaching existing code, it must occupy the expected sibling directory. No external path-binding file overrides the spec.
+
+## Schemas
+
+[project.schema.json](../schemas/project.schema.json) and [guidelines-lock.schema.json](../schemas/guidelines-lock.schema.json) describe schemaVersion 1. Unknown fields are rejected. Runtime checks also enforce valid repository references, portable local names and exact version agreement.

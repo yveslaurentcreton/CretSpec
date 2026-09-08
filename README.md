@@ -1,90 +1,127 @@
 # CretSpec
 
-CretSpec brengt productcode, een private projectspec en gedeelde ontwikkelafspraken samen in één lokale werkruimte. Het commando is **`cspec`**. De repositories blijven zelfstandig; een eindgebruiker heeft alleen de productrepository nodig.
+**Start with the spec.** CretSpec reads a project's spec repository, clones its code and prepares the exact development guidelines it selects.
 
-## Installeren op Windows, Linux en macOS
+```sh
+cspec project clone CretQL-spec
+```
 
-Installeer Git en Node.js 22 of hoger, inclusief npm. Zorg dat Git toegang heeft tot de betrokken repositories. SSH en HTTPS met een credential manager worden ondersteund; zet geen tokens in repository-URLs.
+## Result
 
-Deze eerste versie installeer je vanuit de bronrepository:
+```text
+Projects/
+  CretQL/                       code repository
+  CretQL-spec/                  spec repository and project definition
+    project.json
+    guidelines.lock.json
+    spec/
+    .local/                     ignored, generated files
+      guidelines/<commit>/
+```
+
+No project manifest, marker or editor file is created in the parent directory. The spec is the entry point for project commands.
+
+## Install on Windows, Linux or macOS
+
+Install Git and Node.js 22 or later, including npm. Git must have access to the repositories through SSH or HTTPS with a credential manager.
+
+Install a fixed copy of the tool from its source:
 
 ```sh
 git clone <CretSpec-repository-url> CretSpec
 cd CretSpec
 npm pack
-npm install --global ./cretspec-0.1.0.tgz --ignore-scripts --no-audit --no-fund
+npm install --global ./cretspec-0.2.0.tgz --ignore-scripts --no-audit --no-fund
 cspec --version
 ```
 
-Het pakket bevat een vaste kopie van de tool. Wijzigingen aan de bronmap veranderen die installatie niet. Voor een nieuwe versie pak en installeer je opnieuw. Er is nog geen npm-registerpublicatie of los installatieprogramma.
+There is no npm registry release or standalone installer yet. To update the installation, package and install the new version. Changes to the source directory do not change an installed tarball.
 
-De opdrachten werken in PowerShell, Bash en Zsh. Als PowerShell een `.ps1`-launcher blokkeert, gebruik `npm.cmd` en `cspec.cmd`; wijzig daarvoor geen execution policy. De globale npm-prefix moet schrijfbaar zijn met je gebruikersaccount.
+These commands work in PowerShell, Bash and Zsh. If PowerShell blocks a script launcher, use `npm.cmd` or `cspec.cmd`. The global npm prefix must be writable by your account.
 
-Zonder globale installatie kun je ook rechtstreeks `node bin/cspec.mjs --help` uitvoeren vanuit de CretSpec-map. Voor ontwikkeling is `npm link` beschikbaar; dat gebruikt wel de veranderende broncode.
+Without a global installation, run `node bin/cspec.mjs` from the source directory. For development, `npm link` runs the changing source directly.
 
-## Eenmalig de richtlijnen instellen
+## Configure shared guidelines once
 
-Clone de centrale richtlijnenrepository apart, bijvoorbeeld als `CretAI`, en wijs die aan:
-
-```sh
-git clone <CretAI-repository-url> /pad/naar/CretAI
-cspec guidelines set /pad/naar/CretAI
-cspec guidelines path
-```
-
-Op Windows kan dat bijvoorbeeld `cspec guidelines set "D:/GitHub/CretAI"` zijn. Deze instelling staat in `~/.cretspec/config.json`, buiten de productrepositories. `CRETSPEC_HOME` kan een andere configuratiemap aanwijzen, bijvoorbeeld voor een geïsoleerde test.
-
-De bewerkbare richtlijnenmap is onafhankelijk van de installatiemap van CretSpec. Na het hernoemen of verplaatsen van CretAI voer je `guidelines set` opnieuw uit.
-
-## Een project ophalen
-
-De spec-repository bevat eerst een geldig `project.json`, `guidelines.lock.json` en een `spec/`-map. Zie [het manifestformaat](docs/manifest.md). Een nog lege spec-repository moet je eerst met de templates uit je richtlijnenrepository invullen.
+Clone your shared guidelines repository separately, then select it:
 
 ```sh
-cspec project clone <Project-spec-repository-url> ./MijnProject
-cspec project open ./MijnProject
+git clone <CretAI-repository-url> /path/to/CretAI
+cspec guidelines set /path/to/CretAI
 ```
 
-```text
-MijnProject/                    lokale werkmap, geen Git-repository
-├── code/                       gewone clone van het product
-├── spec/                       gewone clone van de private projectspec
-├── .local/guidelines/           richtlijnen op de exact gekozen commit
-├── .local/context.md            paden en actieve versie
-├── .cretspec-workspace.json     lokale administratie
-└── project.code-workspace      editorwerkruimte
-```
+For example, Windows can use `cspec guidelines set "D:/GitHub/CretAI"`.
 
-De editorwerkruimte toont Code, Spec en Algemene richtlijnen. Algemene richtlijnen verwijst naar de centrale, bewerkbare clone. `.local/guidelines/` bevat de vastgezette projectversie. Een lokale conceptwijziging aan de centrale bron verandert die versie niet.
+The personal setting is stored in `~/.cretspec/config.json`. It contains the editable guidelines location, not project definitions. Set CRETSPEC_HOME to use an isolated configuration directory.
 
-De clone volgt de standaardbranch van de code- en spec-repositories. Alleen de richtlijnen zijn gepind. De richtlijnenrepo wordt opgehaald via het manifest; de gekozen commit moet ook aanwezig zijn in je bewerkbare clone. Zo nodig voer je daar eerst `git fetch --tags` uit. Een gewijzigde tag die niet overeenkomt met de lock wordt geweigerd.
+A short spec name uses the same repository namespace as the configured guidelines clone's origin. If CretAI's origin is `git@github.com:owner/CretAI.git`, `CretQL-spec` resolves to `git@github.com:owner/CretQL-spec`. There is no separate per-project registry. Without an origin, short names resolve next to the local guidelines source.
 
-## Dagelijks gebruiken
+## Clone a project
+
+Run from a parent directory where the two new repositories should be created:
 
 ```sh
+cspec project clone CretQL-spec
+cd CretQL-spec
+cspec project info
+cspec project open
+```
+
+CretSpec first fetches the spec, reads project.json and guidelines.lock.json, and then fetches the code and pinned guidelines. The code directory is the sibling named by `project.json.name`. Spec names are exact repository names; the tool does not invent aliases or rename repositories.
+
+Full URLs and explicit local paths also work:
+
+```sh
+cspec project clone git@github.com:owner/Example-spec.git
+cspec project clone ./source/Example-spec ./projects/Example-spec
+```
+
+The optional destination is the **spec directory**, not an enclosing workspace. Use `./`, `../` or an absolute path for local sources. Relative code and guidelines URLs are resolved against the spec's source location, never its destination.
+
+The spec must contain a valid manifest, lock and spec/ directory. See [the manifest format](docs/manifest.md). Templates come from the guidelines repository. Code and spec follow their default branches; only the guidelines are pinned.
+
+Existing destinations are preserved. A failed clone can leave partial new directories for inspection; it does not delete sources or overwrite existing code.
+
+## Read, open and edit
+
+```sh
+cspec project info
+cspec project open --print
 cspec guidelines edit
-cspec project open ./MijnProject --print
 ```
 
-`edit` opent de centrale richtlijnenmap via je besturingssysteem. `open` opent het workspacebestand via de bestandsassociatie. VS Code ondersteunt dit formaat; andere editors kunnen de getoonde mappen afzonderlijk openen. Met `--print` wordt alleen het pad getoond. Vanuit een map binnen een geclonede werkruimte vindt `cspec project open` de omvattende werkruimte automatisch.
+Run project commands inside the spec, or pass its directory. They read the current manifest and lock each time. Running inside the code repository requires an explicit spec path.
 
-Een bestaande code-clone en spec-clone samenbrengen:
+`project info` prints the resolved project context and prepares the selected guidelines snapshot. It does not persist a second definition.
+
+`project open` generates `<spec>/.local/project.code-workspace` and opens it using the operating system's file association. `--print` generates the file and prints its path without launching an editor. VS Code supports this format; other editors can open the directories shown by `project info`.
+
+Editor folders are regenerated from the spec. Other existing workspace settings are preserved. Deleting the generated editor file does not lose the project definition.
+
+`guidelines edit` opens the shared editable guidelines clone. The active snapshot remains separate and fixed to the spec's lock.
+
+## Existing clones
+
+Place existing code and spec clones next to each other, using the manifest's project name for the code directory:
 
 ```sh
-cspec project attach /pad/naar/code /pad/naar/spec ./MijnProject-werkruimte
+cspec project attach /projects/Example /projects/Example-spec
 ```
 
-`attach` verplaatst of wijzigt die clones niet. Vanuit een extern gekoppelde code-map moet je het workspacepad meegeven: die map ligt niet onder de omvattende werkruimte.
+This prepares generated context inside the spec and preserves existing tracked files. Arbitrary path bindings are not stored elsewhere.
 
-## Grenzen van deze versie
+Version 0.2 replaces the enclosing workspace layout from 0.1. For an old trial, keep the original as a backup and clone into a new parent directory, or arrange its code and spec as siblings. The old outer marker and editor file are no longer used.
 
-- De tool maakt uitsluitend nieuwe werkruimtes en overschrijft geen bestaande doelmap. Bij een fout blijft een eventuele gedeeltelijke nieuwe map staan; bronnen blijven behouden.
-- Een workspace hoort buiten bestaande Git-repositories. Publieke builds blijven onafhankelijk van private specs en richtlijnen.
-- Richtlijnen wijzigen en richtlijnen overnemen zijn aparte handelingen. Werk manifest en lock bij en maak voorlopig een nieuwe werkruimte om de nieuwe versie te gebruiken.
-- De vastgezette richtlijnencheckout is detached, maar niet technisch schrijfbeveiligd. Een lock legt een versie vast; hij bewijst geen identiteit van een uitgever.
-- Deze versie installeert geen projectdependencies, start geen applicatie en activeert geen skills of assistentconfiguratie.
-- Inhoudelijke spec-workflows, Spec Kit-integratie, automatische updates en releaseautomatisering zijn nog niet geïmplementeerd.
+## Versions and limits
 
-## Ontwikkelen
+- Shared guidelines and the tool installation are versioned independently.
+- Update a spec's manifest and lock together to adopt new guidance. Commands then prepare a snapshot under .local/guidelines/<commit>/.
+- The selected commit must also exist in the editable guidelines clone. Run `git fetch --tags` there if necessary.
+- Cached snapshots must match the lock and have no tracked changes or untracked files. They are detached checkouts, not filesystem-enforced read-only directories.
+- Cloning does not install product dependencies, execute spec scripts or start an application.
+- Skills and assistant integrations are not activated automatically.
+- Spec Kit integration, spec generation, a standalone installer and automated releases remain future work.
 
-Zie [CONTRIBUTING.md](CONTRIBUTING.md). De CI-matrix voert syntaxcontrole, integratietests en een installatiesmoke-test uit op Windows, Linux en macOS met Node.js 22 en 24.
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). CI checks syntax, integration scenarios, launchers and packaging on Windows, Linux and macOS with Node.js 22 and 24.

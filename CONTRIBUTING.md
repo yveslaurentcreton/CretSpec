@@ -1,16 +1,20 @@
-# Werken aan CretSpec
+# Contributing to CretSpec
 
-Gebruik Git en Node.js 22 of hoger. Er zijn geen aanvullende runtime-libraries.
+Use Git and Node.js 22 or later. There are no additional runtime dependencies.
 
 ```sh
 npm run check
 npm test
 ```
 
-De tests gebruiken tijdelijke lokale Git-repositories. De CI-matrix controleert Windows, Linux en macOS met Node.js 22 en 24. Tests mogen de persoonlijke configuratie niet gebruiken: geef een tijdelijke CRETSPEC_HOME mee.
+Tests use temporary local Git repositories. CI covers Windows, Linux and macOS with Node.js 22 and 24. Tests must not use personal configuration: set a temporary CRETSPEC_HOME.
 
-Gebruik voor ontwikkeling `node bin/cspec.mjs` of `npm link`. Een geïnstalleerd pakket heeft geen Git-checkout nodig. Haal bewerkbare richtlijnen uitsluitend uit de ingestelde bron, nooit uit de installatiemap van de tool.
+Write documentation, comments, examples and CLI messages in English.
 
-Houd Git-opdrachten als argumentlijsten zonder shellinterpolatie. Overschrijf geen bestaande doelmappen en voer geen scripts uit een projectspec uit. Een fout mag gedeeltelijke nieuwe werkbestanden achterlaten, maar geen bestaande bronbestanden wijzigen.
+For development, run `node bin/cspec.mjs` or use `npm link`. A packaged installation must work without its own Git checkout. Resolve editable guidelines from the configured source, never from the tool's installation directory.
 
-Wijzigingen aan manifestvelden vereisen een overeenkomstige wijziging in validatie, schema's en documentatie. Voeg bij gedragswijzigingen een test met een bruikbaar gebruikersscenario toe.
+Keep the spec as the only source of project configuration. Generated editor files and caches belong inside the spec's ignored `.local/` directory and must be rebuildable from the current manifest and lock.
+
+Pass Git commands as argument arrays without shell interpolation. Do not overwrite existing clone destinations or execute scripts from a project spec. Failures may leave partial new files, but must preserve existing source content.
+
+Changes to manifest fields require matching validation, schemas and documentation. Add tests for meaningful user scenarios when changing behavior.
