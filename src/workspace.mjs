@@ -80,9 +80,21 @@ export function originOrLocal(directory) {
   catch { return directory; }
 }
 
-export function resolveSpecSource(input, guidelinesRoot, cwd = process.cwd()) {
+export function normalizeNamespace(value, cwd = process.cwd()) {
+  if (portableName(value)) return `git@github.com:${value}`;
+  const normalized = normalizeRepository(value, cwd);
+  return repositoryKind(normalized) === 'local' ? normalized : normalized.replace(/\/+$/, '');
+}
+
+export function namespaceFromRepository(repository) {
+  return resolveRepository('../', normalizeRepository(repository));
+}
+
+export function resolveSpecSource(input, repositoryNamespace, cwd = process.cwd()) {
   if (portableName(input)) {
-    return resolveRepository('../' + input, originOrLocal(repositoryRoot(guidelinesRoot)));
+    if (!repositoryNamespace) throw new Error('Configure a repository namespace first: cspec config namespace <GitHub-owner-or-namespace-URL>');
+    const base = normalizeNamespace(repositoryNamespace, cwd);
+    return repositoryKind(base) === 'local' ? path.join(base, input) : base + '/' + input;
   }
   return normalizeRepository(input, cwd);
 }
@@ -134,15 +146,21 @@ async function exists(filename) {
   catch (error) { if (error.code === 'ENOENT') return false; throw error; }
 }
 
-async function createTarget(directory) {
+async function prepareParent(directory) {
   const target = path.resolve(directory);
-  if (await exists(target)) throw new Error(`Destination already exists; nothing overwritten: ${target}`);
-  let parent = path.dirname(target);
+  let parent = target;
   while (!(await exists(parent))) parent = path.dirname(parent);
   let gitRoot;
   try { gitRoot = git(['rev-parse', '--show-toplevel'], parent); } catch { /* Standalone clones have no enclosing Git repository. */ }
   if (gitRoot) throw new Error('Create the project outside existing Git repositories.');
-  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.mkdir(target, { recursive: true });
+  return target;
+}
+
+async function createTarget(directory) {
+  const target = path.resolve(directory);
+  if (await exists(target)) throw new Error(`Destination already exists; nothing overwritten: ${target}`);
+  await prepareParent(path.dirname(target));
   await fs.mkdir(target);
   return target;
 }
@@ -151,6 +169,16 @@ function codePath(spec, manifest) {
   const code = path.join(path.dirname(spec), manifest.name);
   if (samePath(code, spec)) throw new Error('The spec directory and the sibling code directory must have different names.');
   return code;
+}
+
+function projectPaths(spec, manifest, source = originOrLocal(spec)) {
+  const projectRoot = path.dirname(spec);
+  const code = codePath(spec, manifest);
+  const guidelinesRepository = resolveRepository(manifest.guidelines.repository, source);
+  const editableGuidelines = path.join(projectRoot, repositoryDirectory(guidelinesRepository));
+  const names = [spec, code, editableGuidelines].map(directory => path.basename(directory).toLowerCase());
+  if (new Set(names).size !== names.length) throw new Error('Spec, code and guidelines need distinct directory names inside the project root.');
+  return { projectRoot, code, editableGuidelines, guidelinesRepository };
 }
 
 function repositoryIdentity(reference) {
@@ -186,12 +214,24 @@ async function localDirectory(spec) {
   return local;
 }
 
-async function guidelinesSnapshot(spec, manifest, lock, guidelinesRoot, progress) {
-  const editableGuidelines = repositoryRoot(guidelinesRoot);
+async function guidelinesSnapshot(spec, manifest, lock, progress) {
+  const { editableGuidelines, guidelinesRepository } = projectPaths(spec, manifest);
+  if (!(await exists(editableGuidelines))) {
+    progress('Fetching project guidelines');
+    git(['clone', '--no-recurse-submodules', '--no-hardlinks', '--', guidelinesRepository, editableGuidelines]);
+  }
+  if (!(await fs.lstat(editableGuidelines)).isDirectory()) throw new Error('The project guidelines must be a regular directory.');
+  repositoryRoot(editableGuidelines);
+  if (repositoryIdentity(originOrLocal(editableGuidelines)) !== repositoryIdentity(guidelinesRepository)) {
+    throw new Error('The project guidelines repository does not match guidelines.repository in the spec.');
+  }
   try {
     if (git(['cat-file', '-t', lock.commit], editableGuidelines) !== 'commit') throw new Error('Not a commit.');
   } catch {
-    throw new Error(`The configured guidelines repository does not contain ${lock.commit}.\nRun git fetch --tags in ${editableGuidelines}, or select the correct clone with cspec guidelines set.`);
+    throw new Error(`The project guidelines repository does not contain ${lock.commit}.\nRun git fetch --tags in ${editableGuidelines}.`);
+  }
+  if (git(['rev-parse', '--verify', `${lock.ref}^{commit}`], editableGuidelines) !== lock.commit) {
+    throw new Error('The guidelines ref does not match the lock. No version was adopted.');
   }
   const local = await localDirectory(spec);
   const cache = path.join(local, 'guidelines');
@@ -203,8 +243,7 @@ async function guidelinesSnapshot(spec, manifest, lock, guidelinesRoot, progress
   const activeGuidelines = path.join(cache, lock.commit);
   if (!(await exists(activeGuidelines))) {
     progress('Fetching pinned guidelines');
-    const repository = resolveRepository(manifest.guidelines.repository, originOrLocal(spec));
-    git(['clone', '--no-recurse-submodules', '--no-hardlinks', '--', repository, activeGuidelines]);
+    git(['clone', '--no-recurse-submodules', '--no-hardlinks', '--', editableGuidelines, activeGuidelines]);
     const referencedCommit = git(['rev-parse', '--verify', `${lock.ref}^{commit}`], activeGuidelines);
     if (referencedCommit !== lock.commit) throw new Error('The guidelines ref does not match the lock. No version was adopted.');
     git(['checkout', '--detach', lock.commit], activeGuidelines);
@@ -225,55 +264,85 @@ export async function findSpec(start = process.cwd()) {
   let current = path.resolve(start);
   if ((await fs.stat(current)).isFile()) current = path.dirname(current);
   while (true) {
-    if (await exists(path.join(current, 'project.json'))) {
+    if (await exists(path.join(current, 'project.json')) && await exists(path.join(current, 'guidelines.lock.json'))) {
       const spec = repositoryRoot(current);
       await readProject(spec);
       return spec;
     }
+    let enclosingRepository;
+    try { enclosingRepository = path.resolve(git(['rev-parse', '--show-toplevel'], current)); } catch { /* An ordinary project container is not a Git repository. */ }
+    if (enclosingRepository && !samePath(current, enclosingRepository)) {
+      current = enclosingRepository;
+      continue;
+    }
+    if (!enclosingRepository) {
+      const candidates = [];
+      for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        const directory = path.join(current, entry.name);
+        if (await exists(path.join(directory, 'project.json')) && await exists(path.join(directory, 'guidelines.lock.json'))) candidates.push(directory);
+      }
+      if (candidates.length > 1) throw new Error('Multiple project specs found. Pass the intended spec directory explicitly.');
+      if (candidates.length === 1) {
+        const spec = repositoryRoot(candidates[0]);
+        await readProject(spec);
+        return spec;
+      }
+    }
     const parent = path.dirname(current);
-    if (parent === current) throw new Error('No project spec found. Run this command inside the spec repository or pass its directory.');
+    if (parent === current) throw new Error('No project spec found. Run this command inside a project root, code or spec repository, or pass a project directory.');
     current = parent;
   }
 }
 
-export async function projectInfo(start, { guidelinesRoot, progress = () => {} } = {}) {
+export async function projectInfo(start, { progress = () => {} } = {}) {
   const spec = await findSpec(start);
   const { manifest, lock } = await readProject(spec);
-  const code = repositoryRoot(codePath(spec, manifest));
+  const { projectRoot, code: codeDirectory } = projectPaths(spec, manifest);
+  const code = repositoryRoot(codeDirectory);
   const expectedSource = resolveRepository(manifest.code.repository, originOrLocal(spec));
   if (repositoryIdentity(originOrLocal(code)) !== repositoryIdentity(expectedSource)) {
     throw new Error(`The sibling code repository does not match code.repository in the spec: ${code}\nExpected source: ${expectedSource}\nUse the correct clone; the existing repository has not been changed.`);
   }
-  const guidelines = await guidelinesSnapshot(spec, manifest, lock, guidelinesRoot, progress);
-  return { spec, code, ...guidelines, manifest, lock };
+  const guidelines = await guidelinesSnapshot(spec, manifest, lock, progress);
+  return { projectRoot, spec, code, ...guidelines, manifest, lock };
 }
 
-export async function cloneProject(input, directory, { guidelinesRoot, cwd = process.cwd(), progress = () => {} } = {}) {
-  repositoryRoot(guidelinesRoot);
-  const source = resolveSpecSource(input, guidelinesRoot, cwd);
-  const spec = await createTarget(path.resolve(cwd, directory || repositoryDirectory(source)));
-  let code;
+export async function cloneProject(input, directory, { repositoryNamespace, cwd = process.cwd(), progress = () => {} } = {}) {
+  const source = resolveSpecSource(input, repositoryNamespace, cwd);
+  const explicitRoot = directory ? path.resolve(cwd, directory) : null;
+  if (explicitRoot && await exists(explicitRoot)) throw new Error(`Destination already exists; nothing overwritten: ${explicitRoot}`);
+  const parent = await prepareParent(explicitRoot ? path.dirname(explicitRoot) : cwd);
+  const staging = await fs.mkdtemp(path.join(parent, '.cspec-clone-'));
+  let projectRoot;
+  let spec;
   try {
     progress('Fetching project spec');
-    git(['clone', '--no-recurse-submodules', '--no-hardlinks', '--', source, spec]);
-    const { manifest } = await readProject(spec);
-    code = await createTarget(codePath(spec, manifest));
+    git(['clone', '--no-recurse-submodules', '--no-hardlinks', '--', source, staging]);
+    const { manifest } = await readProject(staging);
+    const target = explicitRoot || path.join(parent, manifest.name);
+    const targetSpec = path.join(target, repositoryDirectory(source));
+    const { code } = projectPaths(targetSpec, manifest, source);
+    projectRoot = await createTarget(target);
+    await fs.rename(staging, targetSpec);
+    spec = targetSpec;
     progress('Fetching code');
     git(['clone', '--no-recurse-submodules', '--no-hardlinks', '--', resolveRepository(manifest.code.repository, source), code]);
-    return await projectInfo(spec, { guidelinesRoot, progress });
+    return await projectInfo(spec, { progress });
   } catch (error) {
-    throw new Error(`${error.message}\nNew directories have been preserved for inspection: ${spec}${code ? ', ' + code : ''}\nExisting repositories have not been modified.`);
+    const preserved = [projectRoot, !spec ? staging : null].filter(Boolean).join(', ');
+    throw new Error(`${error.message}\nNew directories preserved for inspection: ${preserved}\nExisting repositories have not been modified.`);
   }
 }
 
-export async function attachProject(codeDirectory, specDirectory, { guidelinesRoot, progress = () => {} } = {}) {
+export async function attachProject(codeDirectory, specDirectory, { progress = () => {} } = {}) {
   const spec = repositoryRoot(specDirectory);
   const code = repositoryRoot(codeDirectory);
   const { manifest } = await readProject(spec);
   if (!samePath(code, codePath(spec, manifest))) {
     throw new Error(`The spec expects its code in the sibling directory ${codePath(spec, manifest)}. No separate project bindings are stored.`);
   }
-  return projectInfo(spec, { guidelinesRoot, progress });
+  return projectInfo(spec, { progress });
 }
 
 export async function workspacePath(start, options = {}) {
@@ -286,9 +355,9 @@ export async function workspacePath(start, options = {}) {
   await fs.writeFile(workspaceFile, JSON.stringify({
     ...existing,
     folders: [
-      { name: 'Code', path: relative(info.code) },
-      { name: 'Spec', path: relative(info.spec) },
-      { name: 'Shared guidelines', path: relative(info.editableGuidelines) },
+      { name: path.basename(info.code), path: relative(info.code) },
+      { name: path.basename(info.spec), path: relative(info.spec) },
+      { name: path.basename(info.editableGuidelines), path: relative(info.editableGuidelines) },
     ],
   }, null, 2) + '\n');
   return workspaceFile;

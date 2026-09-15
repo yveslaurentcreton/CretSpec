@@ -11,7 +11,7 @@ Tests use temporary local Git repositories. CI covers Windows, Linux and macOS w
 
 Write documentation, comments, examples and CLI messages in English.
 
-For development, run `node bin/cspec.mjs` or use `npm link`. A packaged installation must work without its own Git checkout. Resolve editable guidelines from the configured source, never from the tool's installation directory.
+For development, run `node bin/cspec.mjs` or use `npm link`. A packaged installation must work without its own Git checkout. Keep the tool source outside project roots. Resolve editable guidelines from the project's spec and its local sibling repositories, never from the tool installation or a globally selected working copy.
 
 Keep the spec as the only source of project configuration. Generated editor files and caches belong inside the spec's ignored `.local/` directory and must be rebuildable from the current manifest and lock.
 

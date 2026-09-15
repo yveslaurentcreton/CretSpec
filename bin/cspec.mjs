@@ -1,33 +1,40 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { cloneProject, attachProject, workspacePath, projectInfo, openPath } from '../src/workspace.mjs';
-import { getGuidelines, setGuidelines } from '../src/config.mjs';
+import { getNamespace, setNamespace } from '../src/config.mjs';
 
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-const help = `CretSpec ${version} — start with the spec
+const help = `CretSpec ${version} — one root directory per project
 
 Usage:
-  cspec guidelines set <path-to-CretAI>
-  cspec guidelines path
-  cspec guidelines edit [--print]
-  cspec project clone <spec-name-or-url> [spec-directory]
+  cspec config namespace [GitHub-owner-or-namespace-URL]
+  cspec project clone <spec-name-or-url> [project-directory]
   cspec project attach <code-directory> <spec-directory>
-  cspec project info [spec-directory]
-  cspec project open [spec-directory] [--print]
+  cspec project info [project-or-spec-directory]
+  cspec project open [project-or-spec-directory] [--print]
+  cspec guidelines path [project-or-spec-directory]
+  cspec guidelines edit [project-or-spec-directory] [--print]
   cspec --version
   cspec --help
 
 Example:
+  cspec config namespace your-github-owner
   cspec project clone CretQL-spec
 
-A short name uses the namespace of your configured guidelines repository.
-The spec is cloned first. Its project.json determines the code repository
-and sibling directory; its lock selects the exact guidelines version.
+Clone reads the spec first, then creates CretQL/ containing CretQL-spec/,
+CretQL/ and CretAI/. The spec owns the project definition.
+CretSpec is installed separately and is not copied into projects.
 Use ./ or an absolute path for a local source repository.
 
 Git and Node.js 22+ are required. Clone does not install or run project code.
 Editor files are generated only by project open, inside the spec's .local/.
 `;
+
+function locationAndPrint(args) {
+  const paths = args.filter(arg => arg !== '--print');
+  if (paths.length > 1 || paths.some(arg => arg.startsWith('-')) || args.filter(arg => arg === '--print').length > 1) throw new Error(help);
+  return { location: paths[0], print: args.includes('--print') };
+}
 
 try {
   const args = process.argv.slice(2);
@@ -35,34 +42,35 @@ try {
     console.log(help);
   } else if (args.length === 1 && ['--version', '-v'].includes(args[0])) {
     console.log(version);
-  } else if (args[0] === 'guidelines' && args[1] === 'set' && args.length === 3) {
-    console.log(`Editable guidelines: ${await setGuidelines(args[2])}`);
-  } else if (args[0] === 'guidelines' && args[1] === 'path' && args.length === 2) {
-    console.log(await getGuidelines());
-  } else if (args[0] === 'guidelines' && args[1] === 'edit' && (args.length === 2 || (args.length === 3 && args[2] === '--print'))) {
-    const directory = await getGuidelines();
+  } else if (args[0] === 'config' && args[1] === 'namespace' && [2, 3].includes(args.length)) {
+    const namespace = args.length === 3 ? await setNamespace(args[2]) : await getNamespace();
+    if (!namespace) throw new Error('No repository namespace configured. Use cspec config namespace <GitHub-owner-or-namespace-URL>.');
+    console.log(namespace);
+  } else if (args[0] === 'guidelines' && args[1] === 'path' && [2, 3].includes(args.length)) {
+    if (args[2]?.startsWith('-')) throw new Error(help);
+    console.log((await projectInfo(args[2])).editableGuidelines);
+  } else if (args[0] === 'guidelines' && args[1] === 'edit') {
+    const { location, print } = locationAndPrint(args.slice(2));
+    const directory = (await projectInfo(location)).editableGuidelines;
     console.log(directory);
-    if (args.length === 2) await openPath(directory);
+    if (!print) await openPath(directory);
   } else if (args[0] === 'project' && args[1] === 'clone' && [3, 4].includes(args.length)) {
     if (args.slice(2).some(arg => arg.startsWith('-'))) throw new Error(help);
+    const shortName = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(args[2]);
     const result = await cloneProject(args[2], args[3], {
-      guidelinesRoot: await getGuidelines(), progress: message => console.log(`• ${message}`),
+      repositoryNamespace: shortName ? await getNamespace() : undefined,
+      progress: message => console.log(`• ${message}`),
     });
-    console.log(`\n${result.manifest.name} is ready.\nSpec: ${result.spec}\nCode: ${result.code}\nGuidelines: ${result.lock.ref} (${result.lock.commit.slice(0, 12)})`);
+    console.log(`\n${result.manifest.name} is ready.\nProject: ${result.projectRoot}\nSpec: ${result.spec}\nCode: ${result.code}\nEditable guidelines: ${result.editableGuidelines}\nActive guidelines: ${result.lock.ref} (${result.lock.commit.slice(0, 12)})`);
   } else if (args[0] === 'project' && args[1] === 'attach' && args.length === 4) {
-    const result = await attachProject(args[2], args[3], {
-      guidelinesRoot: await getGuidelines(), progress: message => console.log(`• ${message}`),
-    });
-    console.log(`Project ready. Spec: ${result.spec}\nCode: ${result.code}`);
+    const result = await attachProject(args[2], args[3], { progress: message => console.log(`• ${message}`) });
+    console.log(`Project ready: ${result.projectRoot}`);
   } else if (args[0] === 'project' && args[1] === 'info' && [2, 3].includes(args.length)) {
     if (args[2]?.startsWith('-')) throw new Error(help);
-    console.log(JSON.stringify(await projectInfo(args[2], { guidelinesRoot: await getGuidelines() }), null, 2));
+    console.log(JSON.stringify(await projectInfo(args[2]), null, 2));
   } else if (args[0] === 'project' && args[1] === 'open') {
-    const tail = args.slice(2);
-    const print = tail.includes('--print');
-    const paths = tail.filter(arg => arg !== '--print');
-    if (paths.length > 1 || paths.some(arg => arg.startsWith('-')) || tail.filter(arg => arg === '--print').length > 1) throw new Error(help);
-    const filename = await workspacePath(paths[0], { guidelinesRoot: await getGuidelines() });
+    const { location, print } = locationAndPrint(args.slice(2));
+    const filename = await workspacePath(location);
     console.log(filename);
     if (!print) await openPath(filename);
   } else {
