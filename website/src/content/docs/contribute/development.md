@@ -15,6 +15,8 @@ cargo build --release --locked
 
 Integration tests create isolated temporary repositories and configuration. They cover cloning, movement, discovery, preservation of local work, origin checks, exact snapshots, initialization, diagnosis and interrupted update recovery.
 
+Agent scenarios also cover scoped skill sources, adopted versus draft skills, standard host paths, existing instructions, managed-file conflicts, interrupted synchronization and platform-specific links/permissions. These tests verify filesystem integration; live discovery and invocation require a separate session in the relevant agent.
+
 Use `cargo run -- <arguments>` for development code. A separately installed `cspec` does not change when you edit this checkout. Install deliberately with `cargo install --path . --locked` when ready.
 
 ## Structure
@@ -24,6 +26,9 @@ Use `cargo run -- <arguments>` for development code. A separately installed `csp
 | `src/main.rs` | Command parsing and presentation |
 | `src/workspace.rs` | Discovery, preparation and editor files |
 | `src/operations.rs` | Initialization, diagnostics, guideline adoption/recovery |
+| `src/skills.rs` | Standard skill bundles, source validation and scoped scaffolding |
+| `src/agents.rs` | Structured context, host entry points and protected synchronization |
+| `assets/cspec-workspace/` | Workflow skill embedded in the native executable |
 | `src/manifest.rs`, `schemas/` | Versioned project protocol |
 | `src/repository.rs`, `src/git.rs` | References and Git subprocesses |
 | `src/config.rs`, `src/files.rs` | Personal configuration and filesystem helpers |

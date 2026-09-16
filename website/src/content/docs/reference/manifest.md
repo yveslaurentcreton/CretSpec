@@ -25,8 +25,11 @@ Commit both files in the spec repository root, alongside a `spec/` directory. JS
 | `guidelines.repository` | Git source of your shared AI guidelines repository. |
 | `guidelines.ref` | Selected tag, commit or locally resolvable ref; prefer immutable tags. Starts with a letter/digit and contains only letters, digits, `.`, `_`, `/` or `-`. |
 | `profile` | Selects `profiles/<profile>.md` at the locked version. Starts with a letter, followed by letters, digits, `_` or `-`. |
+| `agents` | Optional array of unique `codex`, `claude`, `copilot`, `cursor` values. Omission selects all four; `[]` disables generated integrations. |
 
 Spec and guidelines folder names come from their repository basenames, with one trailing `.git` removed. The code folder uses `name`. All three must be distinct, ignoring case, and use portable names.
+
+Existing version 1 definitions need no migration. Older executables that predate agent integrations reject an explicit `agents` field; upgrade the executable before adding it. Initialization with the new executable writes the selected defaults. The project definition remains solely in this repository.
 
 Relative references resolve against the **spec source**, not the current terminal directory:
 
@@ -58,11 +61,16 @@ This lock selects guidelines only. Code and spec clone their normal default bran
 Atlas-spec/.local/
 ├── guidelines/<commit>/       detached adopted snapshot
 ├── project.code-workspace    optional editor file
-└── definition-update.json    present only during an update/recovery
+├── definition-update.json    present only during an update/recovery
+├── agents-state.json         generated file ownership
+├── agents-pending.json       present during sync/retry
+└── agents.lock               process lock
 ```
 
 CretSpec adds a local Git exclusion when needed. `.local/` must not contain tracked files. Snapshots and editor configuration can be regenerated after preserving local changes; an update journal must be recovered before it is removed.
 
 The outer project root has no definition, binding file or Git repository. Personal settings only expand short source names before cloning.
+
+Agent instructions and skills are also generated in the outer root and sibling repositories. They are derived outputs, not project definitions. Preserve their ownership metadata and follow the [synchronization rules](/CretSpec/reference/skills/#generated-files) when rebuilding them.
 
 See the [project JSON Schema](https://github.com/yveslaurentcreton/CretSpec/blob/main/schemas/project.schema.json) and [lock JSON Schema](https://github.com/yveslaurentcreton/CretSpec/blob/main/schemas/guidelines-lock.schema.json). Runtime validation also checks repository relationships, portable filenames and ref/commit agreement.

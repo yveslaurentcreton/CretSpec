@@ -41,6 +41,7 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
             reference: options.reference.into(),
         },
         profile: options.profile.into(),
+        agents: manifest::default_agents(),
     };
     // Validate user inputs before fetching any repository.
     let mut lock = Lock {
@@ -201,16 +202,27 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
         }
     }
     match workspace::info(start, false, &|_| {}) {
-        Ok(info) => checks.push(Check {
-            name: "Project".into(),
-            ok: true,
-            detail: format!(
-                "{}; guidance {} ({})",
-                info.manifest.name,
-                info.lock.reference,
-                &info.lock.commit[..12]
-            ),
-        }),
+        Ok(info) => {
+            checks.push(Check {
+                name: "Project".into(),
+                ok: true,
+                detail: format!(
+                    "{}; guidance {} ({})",
+                    info.manifest.name,
+                    info.lock.reference,
+                    &info.lock.commit[..12]
+                ),
+            });
+            let (ok, detail) = match crate::agents::check(&info) {
+                Ok(detail) => (true, detail),
+                Err(error) => (false, format!("{error:#}")),
+            };
+            checks.push(Check {
+                name: "Agent integrations".into(),
+                ok,
+                detail,
+            });
+        }
         Err(error) => checks.push(Check {
             name: "Project".into(),
             ok: false,
@@ -220,7 +232,7 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
     checks
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateResult {
     pub previous: Lock,
@@ -259,7 +271,13 @@ pub fn update(start: &Path, reference: &str, preview: bool, fetch: bool) -> Resu
         commit: hash,
     };
     manifest::validate(&definition, &selected)?;
-    workspace::snapshot(&info.spec, &definition, &selected, true, &|_| {})?;
+    let (_, active_guidelines) =
+        workspace::snapshot(&info.spec, &definition, &selected, true, &|_| {})?;
+    let mut proposed = info.clone();
+    proposed.manifest = definition.clone();
+    proposed.lock = selected.clone();
+    proposed.active_guidelines = active_guidelines;
+    crate::skills::active(&proposed).context("Requested guidelines contain invalid or conflicting skills. The definition was not changed")?;
     let changes = git::run(
         &info.editable_guidelines,
         ["diff", "--stat", &info.lock.commit, &selected.commit, "--"],
@@ -311,6 +329,10 @@ pub fn update(start: &Path, reference: &str, preview: bool, fetch: bool) -> Resu
                 ),
             }
         }
+    }
+    if !preview {
+        let current = workspace::info(&info.spec, false, &|_| {})?;
+        crate::agents::sync(&current).context("The guidelines definition is saved, but agent synchronization failed. Preserve and reconcile the reported files, then run cspec sync")?;
     }
     Ok(UpdateResult {
         previous: info.lock,

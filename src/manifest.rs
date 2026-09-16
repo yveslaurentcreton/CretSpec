@@ -11,6 +11,21 @@ pub struct Manifest {
     pub code: Source,
     pub guidelines: Guidelines,
     pub profile: String,
+    #[serde(default = "default_agents")]
+    pub agents: Vec<Agent>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Agent {
+    Codex,
+    Claude,
+    Copilot,
+    Cursor,
+}
+
+pub fn default_agents() -> Vec<Agent> {
+    vec![Agent::Codex, Agent::Claude, Agent::Copilot, Agent::Cursor]
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,6 +72,11 @@ pub fn read(spec: &Path) -> Result<(Manifest, Lock)> {
 }
 
 pub fn validate(manifest: &Manifest, lock: &Lock) -> Result<()> {
+    for (index, agent) in manifest.agents.iter().enumerate() {
+        if manifest.agents[..index].contains(agent) {
+            bail!("Agent integrations must not contain duplicates.");
+        }
+    }
     if manifest.schema_version != 1 || lock.schema_version != 1 {
         bail!("Only schemaVersion 1 is supported.");
     }

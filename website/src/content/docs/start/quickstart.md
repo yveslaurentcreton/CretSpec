@@ -28,6 +28,8 @@ With a spec that names its product `Atlas` and points to a repository named `ai-
 
 ```text
 Atlas/
+├── AGENTS.md            generated workspace instructions
+├── CLAUDE.md            generated Claude entry point
 ├── Atlas-spec/
 │   ├── project.json
 │   ├── guidelines.lock.json
@@ -37,7 +39,7 @@ Atlas/
 └── ai-guidelines/       editable AI guidelines
 ```
 
-The outer directory only groups your repositories. It has no project definition or Git repository of its own.
+The outer directory groups your repositories and generated agent context. It has no project definition or Git repository of its own. Selected integrations also prepare skills and instruction entry points inside each repository; these local files are excluded from Git.
 
 ```sh
 cd Atlas
@@ -56,3 +58,5 @@ cspec project open
 This generates `Atlas-spec/.local/project.code-workspace` and asks the operating system to open it. Associate `.code-workspace` with VS Code or a compatible editor. With another editor, open the three folders directly. `cspec project open --print` generates and prints the file without launching an application.
 
 You can now edit and commit code, specification and shared guidelines in their respective repositories. Each keeps its own branches and history.
+
+Your coding agent can now discover the prepared instructions and skills. Ask it to read the project's specification and adopted guidance. Follow [the agent workflow](/CretSpec/guides/agents/) to create project or shared skills and check their availability.

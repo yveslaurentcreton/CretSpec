@@ -1,7 +1,7 @@
 use cretspec::{
-    files, git,
+    agents, files, git,
     manifest::{Guidelines, Lock, Manifest, Source},
-    operations, repository, workspace,
+    operations, repository, skills, workspace,
 };
 use serde_json::{Value, json};
 use std::{
@@ -88,6 +88,7 @@ impl Fixture {
                 reference: "v0.1.0".into(),
             },
             profile: "rust".into(),
+            agents: cretspec::manifest::default_agents(),
         };
         let lock = Lock {
             schema_version: 1,
@@ -151,6 +152,567 @@ fn children(path: &Path) -> Vec<String> {
     result
 }
 
+fn skill_source(root: &Path, name: &str, instructions: &str) -> PathBuf {
+    let directory = root.join(name);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("SKILL.md"), format!("---\nname: {name}\ndescription: >\n  Use when validating a fixture workflow.\n---\n\n{instructions}\n")).unwrap();
+    directory
+}
+
+#[test]
+fn repository_ignore_exceptions_cannot_expose_private_generated_files() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let before = fs::read(info.code.join("AGENTS.md")).unwrap();
+    fs::write(info.code.join(".gitignore"), "!AGENTS.md\n").unwrap();
+    assert!(agents::check(&info).is_err());
+    let error = agents::sync(&info).unwrap_err();
+    assert!(format!("{error:#}").contains("expose generated file"));
+    assert_eq!(fs::read(info.code.join("AGENTS.md")).unwrap(), before);
+    fs::write(info.code.join(".gitignore"), "# Resolved\n").unwrap();
+    agents::sync(&info).unwrap();
+    agents::check(&info).unwrap();
+}
+
+#[test]
+fn ignored_snapshot_additions_are_not_exposed_as_adopted_skills() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let exclude = info.active_guidelines.join(".git/info/exclude");
+    fs::write(&exclude, "/skills/\n").unwrap();
+    skill_source(
+        &info.active_guidelines.join("skills"),
+        "uncommitted",
+        "This is not adopted",
+    );
+    assert_eq!(
+        git::run(&info.active_guidelines, ["status", "--porcelain"]).unwrap(),
+        ""
+    );
+    let error = agents::sync(&info).unwrap_err();
+    assert!(format!("{error:#}").contains("outside the locked Git snapshot"));
+    assert!(!info.code.join(".agents/skills/uncommitted").exists());
+}
+
+#[test]
+fn retry_recognizes_a_new_output_written_before_interruption() {
+    use sha2::{Digest, Sha256};
+    let f = Fixture::new();
+    let info = f.clone();
+    let source = skill_source(&info.spec.join("spec/skills"), "recover-check", "New skill");
+    let bytes = fs::read(source.join("SKILL.md")).unwrap();
+    let fingerprint: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let mut pending: Value = files::read_json(&info.spec.join(".local/agents-state.json")).unwrap();
+    pending["files"]["code/.agents/skills/recover-check/SKILL.md"] =
+        json!([{"sha256":fingerprint,"executable":false}]);
+    files::write_json(&info.spec.join(".local/agents-pending.json"), &pending).unwrap();
+    let output = info.code.join(".agents/skills/recover-check/SKILL.md");
+    fs::create_dir_all(output.parent().unwrap()).unwrap();
+    fs::write(&output, bytes).unwrap();
+    agents::sync(&info).unwrap();
+    assert!(
+        info.spec
+            .join(".claude/skills/recover-check/SKILL.md")
+            .is_file()
+    );
+    assert!(!info.spec.join(".local/agents-pending.json").exists());
+    agents::check(&info).unwrap();
+}
+
+#[test]
+fn invalid_proposed_shared_skill_does_not_change_the_definition() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let source = skill_source(
+        &info.editable_guidelines.join("skills"),
+        "invalid-skill",
+        "Draft",
+    );
+    fs::write(source.join("SKILL.md"), "Invalid frontmatter").unwrap();
+    commit(&info.editable_guidelines, "Add malformed skill");
+    git::run(&info.editable_guidelines, ["tag", "v0.2.0"]).unwrap();
+    let before = fs::read(info.spec.join("project.json")).unwrap();
+    assert!(operations::update(&info.spec, "v0.2.0", false, false).is_err());
+    assert_eq!(fs::read(info.spec.join("project.json")).unwrap(), before);
+    agents::check(&info).unwrap();
+    let inventory = skills::inventory(&info).unwrap();
+    assert_eq!(inventory.draft_errors.len(), 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_junction_cannot_redirect_generated_resources() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let outside = f.root.join("outside resources");
+    fs::create_dir(&outside).unwrap();
+    let output = info.code.join(".agents/skills/cspec-workspace");
+    fs::rename(&output, info.code.join("preserved-skill")).unwrap();
+    let result = git::command("cmd.exe")
+        .args(["/C", "mklink", "/J"])
+        .arg(&output)
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(agents::sync(&info).is_err());
+    assert!(children(&outside).is_empty());
+}
+
+#[test]
+fn agent_entry_points_are_discoverable_excluded_and_relocatable() {
+    let f = Fixture::new();
+    let info = f.clone();
+    for base in [
+        &info.project_root,
+        &info.code,
+        &info.spec,
+        &info.editable_guidelines,
+    ] {
+        for relative in [
+            "AGENTS.md",
+            "CLAUDE.md",
+            ".agents/skills/cspec-workspace/SKILL.md",
+            ".claude/skills/cspec-workspace/SKILL.md",
+            ".github/instructions/cspec.instructions.md",
+            ".cursor/rules/cspec.mdc",
+        ] {
+            let path = base.join(relative);
+            assert!(fs::symlink_metadata(&path).unwrap().is_file());
+            if base != &info.project_root {
+                git::run(base, ["check-ignore", "--quiet", "--", relative]).unwrap();
+            }
+        }
+        assert!(
+            !fs::read_to_string(base.join("AGENTS.md"))
+                .unwrap()
+                .contains(&info.project_root.to_string_lossy().to_string())
+        );
+    }
+    let result = agents::sync(&info).unwrap();
+    assert_eq!(result.written, 0);
+    assert_eq!(result.removed, 0);
+    assert!(result.unchanged > 0);
+    let moved = f.root.join("new parent with spaces");
+    fs::rename(&info.project_root, &moved).unwrap();
+    let info = workspace::info(&moved, false, &|_| {}).unwrap();
+    agents::check(&info).unwrap();
+    for base in [
+        &info.project_root,
+        &info.code,
+        &info.spec,
+        &info.editable_guidelines,
+    ] {
+        let output = ok(f.cli(&["context", &base.to_string_lossy(), "--json"]));
+        let context: Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(context["schemaVersion"], 1);
+        assert_eq!(context["integration"]["ready"], true);
+        assert_eq!(context["project"]["lock"]["commit"], f.lock.commit);
+    }
+}
+
+#[test]
+fn skills_keep_project_sources_and_shared_drafts_separate() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let output = ok(f.cli(&[
+        "skill",
+        "create",
+        "query-validation",
+        "--scope",
+        "project",
+        "--description",
+        "Validate query inputs",
+        "--location",
+        &info.code.to_string_lossy(),
+        "--json",
+    ]));
+    let created: Value = serde_json::from_str(&output).unwrap();
+    let source = PathBuf::from(created["source"].as_str().unwrap());
+    assert_eq!(source, info.spec.join("spec/skills/query-validation"));
+    fs::create_dir(source.join("references")).unwrap();
+    fs::write(
+        source.join("references/example.json"),
+        b"{\"fixture\":true}",
+    )
+    .unwrap();
+    assert!(agents::check(&info).is_err());
+    let synced = ok(f.cli(&["sync", &info.code.to_string_lossy(), "--json"]));
+    assert!(
+        serde_json::from_str::<Value>(&synced).unwrap()["written"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(
+        fs::read(
+            info.code
+                .join(".agents/skills/query-validation/references/example.json")
+        )
+        .unwrap(),
+        b"{\"fixture\":true}"
+    );
+    assert!(
+        skills::create(
+            &info,
+            "query-validation",
+            skills::Scope::Project,
+            "Another description"
+        )
+        .is_err()
+    );
+    let shared = skills::create(
+        &info,
+        "release-check",
+        skills::Scope::Shared,
+        "Check a release",
+    )
+    .unwrap();
+    assert_eq!(
+        shared,
+        info.editable_guidelines.join("skills/release-check")
+    );
+    agents::sync(&info).unwrap();
+    assert!(!info.code.join(".agents/skills/release-check").exists());
+    let inventory = skills::inventory(&info).unwrap();
+    assert!(
+        inventory
+            .active
+            .iter()
+            .any(|s| s.name == "query-validation")
+    );
+    assert!(!inventory.active.iter().any(|s| s.name == "release-check"));
+    assert!(
+        inventory
+            .shared_drafts
+            .iter()
+            .any(|s| s.name == "release-check")
+    );
+    commit(&info.editable_guidelines, "Add a shared skill");
+    git::run(&info.editable_guidelines, ["tag", "v0.2.0"]).unwrap();
+    operations::update(&info.spec, "v0.2.0", false, false).unwrap();
+    let updated = workspace::info(&info.spec, false, &|_| {}).unwrap();
+    agents::check(&updated).unwrap();
+    assert!(
+        updated
+            .code
+            .join(".agents/skills/release-check/SKILL.md")
+            .is_file()
+    );
+    assert_eq!(updated.lock.reference, "v0.2.0");
+    assert_eq!(info.lock.reference, "v0.1.0");
+}
+
+#[test]
+fn synchronization_preflights_conflicts_and_preserves_unrelated_resources() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let source = skill_source(
+        &info.spec.join("spec/skills"),
+        "check-data",
+        "Original instructions",
+    );
+    agents::sync(&info).unwrap();
+    let first = info.project_root.join(".agents/skills/check-data/SKILL.md");
+    let before = fs::read(&first).unwrap();
+    let edited = info.code.join(".claude/skills/check-data/SKILL.md");
+    fs::write(&edited, "User work").unwrap();
+    fs::write(
+        source.join("SKILL.md"),
+        "---\nname: check-data\ndescription: Updated check\n---\nNew instructions\n",
+    )
+    .unwrap();
+    assert!(
+        agents::sync(&info)
+            .unwrap_err()
+            .to_string()
+            .contains("locally edited")
+    );
+    assert_eq!(fs::read(&first).unwrap(), before);
+    assert_eq!(fs::read(&edited).unwrap(), b"User work");
+    fs::remove_file(&edited).unwrap();
+    agents::sync(&info).unwrap();
+    let keep = info.code.join(".agents/skills/check-data/user-notes.txt");
+    fs::write(&keep, "Unmanaged notes").unwrap();
+    fs::remove_dir_all(&source).unwrap();
+    agents::sync(&info).unwrap();
+    assert!(!first.exists());
+    assert_eq!(fs::read(&keep).unwrap(), b"Unmanaged notes");
+    agents::check(&info).unwrap();
+}
+
+#[test]
+fn existing_repository_instructions_are_preserved_and_included() {
+    let f = Fixture::new();
+    fs::write(
+        f.code.join("AGENTS.md"),
+        "# Existing\nRun the existing checks.\n",
+    )
+    .unwrap();
+    fs::write(f.code.join("CLAUDE.md"), "# Existing Claude instructions\n").unwrap();
+    commit(&f.code, "Add instructions");
+    let info = f.clone();
+    assert_eq!(
+        fs::read_to_string(info.code.join("AGENTS.md"))
+            .unwrap()
+            .replace("\r\n", "\n"),
+        "# Existing\nRun the existing checks.\n"
+    );
+    assert!(
+        fs::read_to_string(info.code.join("AGENTS.override.md"))
+            .unwrap()
+            .contains("Run the existing checks.")
+    );
+    assert_eq!(
+        fs::read_to_string(info.code.join("CLAUDE.local.md")).unwrap(),
+        "@AGENTS.override.md\n"
+    );
+    assert_eq!(git::run(&info.code, ["status", "--porcelain"]).unwrap(), "");
+    fs::write(info.code.join("AGENTS.md"), "Updated tracked guidance\n").unwrap();
+    assert!(agents::check(&info).is_err());
+    agents::sync(&info).unwrap();
+    assert!(
+        fs::read_to_string(info.code.join("AGENTS.override.md"))
+            .unwrap()
+            .contains("Updated tracked guidance")
+    );
+}
+
+#[test]
+fn tracked_generated_files_and_existing_overrides_are_not_replaced() {
+    let f = Fixture::new();
+    let info = f.clone();
+    git::run(&info.code, ["add", "--force", "AGENTS.md"]).unwrap();
+    let before = fs::read(info.code.join("AGENTS.md")).unwrap();
+    assert!(
+        agents::sync(&info)
+            .unwrap_err()
+            .to_string()
+            .contains("tracked")
+    );
+    assert_eq!(fs::read(info.code.join("AGENTS.md")).unwrap(), before);
+    git::run(&info.code, ["reset", "--", "AGENTS.md"]).unwrap();
+    fs::write(info.code.join("AGENTS.override.md"), "Owner override").unwrap();
+    assert!(agents::sync(&info).is_err());
+    assert_eq!(
+        fs::read(info.code.join("AGENTS.override.md")).unwrap(),
+        b"Owner override"
+    );
+}
+
+#[test]
+fn invalid_and_colliding_skills_fail_before_changing_integrations() {
+    let f = Fixture::new();
+    skill_source(&f.guidelines.join("skills"), "same-name", "Shared skill");
+    let hash = commit(&f.guidelines, "Add shared skill");
+    git::run(&f.guidelines, ["tag", "v0.2.0"]).unwrap();
+    let mut manifest = f.manifest.clone();
+    manifest.guidelines.reference = "v0.2.0".into();
+    let lock = Lock {
+        schema_version: 1,
+        reference: "v0.2.0".into(),
+        commit: hash,
+    };
+    files::write_json(&f.spec.join("project.json"), &manifest).unwrap();
+    files::write_json(&f.spec.join("guidelines.lock.json"), &lock).unwrap();
+    commit(&f.spec, "Adopt shared skill");
+    let info = f.clone();
+    let output = info.code.join(".agents/skills/same-name/SKILL.md");
+    let before = fs::read(&output).unwrap();
+    let source = skill_source(
+        &info.spec.join("spec/skills"),
+        "same-name",
+        "Project collision",
+    );
+    assert!(
+        agents::sync(&info)
+            .unwrap_err()
+            .to_string()
+            .contains("both project")
+    );
+    assert_eq!(fs::read(&output).unwrap(), before);
+    fs::remove_dir_all(source).unwrap();
+    let invalid = skill_source(&info.spec.join("spec/skills"), "invalid", "Original");
+    fs::write(
+        invalid.join("SKILL.md"),
+        "---\nname: wrong-name\ndescription: Example\n---\n",
+    )
+    .unwrap();
+    assert!(agents::sync(&info).is_err());
+    assert_eq!(fs::read(&output).unwrap(), before);
+    assert!(skills::create(&info, "../outside", skills::Scope::Project, "Example").is_err());
+    assert!(skills::create(&info, "cspec-workspace", skills::Scope::Project, "Example").is_err());
+    assert!(skills::create(&info, "con", skills::Scope::Project, "Example").is_err());
+}
+
+#[test]
+fn integration_selection_removes_only_owned_files_and_can_be_disabled() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let mut definition = info.manifest.clone();
+    definition.agents = vec![cretspec::manifest::Agent::Copilot];
+    files::write_json(&info.spec.join("project.json"), &definition).unwrap();
+    let changed = workspace::info(&info.spec, false, &|_| {}).unwrap();
+    agents::sync(&changed).unwrap();
+    assert!(
+        info.code
+            .join(".agents/skills/cspec-workspace/SKILL.md")
+            .is_file()
+    );
+    assert!(
+        !info
+            .code
+            .join(".claude/skills/cspec-workspace/SKILL.md")
+            .exists()
+    );
+    assert!(!info.code.join("CLAUDE.md").exists());
+    definition.agents.clear();
+    files::write_json(&info.spec.join("project.json"), &definition).unwrap();
+    let changed = workspace::info(&info.spec, false, &|_| {}).unwrap();
+    agents::sync(&changed).unwrap();
+    assert!(!info.code.join("AGENTS.md").exists());
+    assert!(
+        !info
+            .code
+            .join(".agents/skills/cspec-workspace/SKILL.md")
+            .exists()
+    );
+    agents::check(&changed).unwrap();
+    let mut old = serde_json::to_value(&f.manifest).unwrap();
+    old.as_object_mut().unwrap().remove("agents");
+    let old: Manifest = serde_json::from_value(old).unwrap();
+    assert_eq!(old.agents, cretspec::manifest::default_agents());
+    definition.agents = vec![
+        cretspec::manifest::Agent::Codex,
+        cretspec::manifest::Agent::Codex,
+    ];
+    assert!(cretspec::manifest::validate(&definition, &f.lock).is_err());
+}
+
+#[test]
+fn pending_sync_is_diagnosed_and_can_be_retried_without_losing_user_work() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let local = info.spec.join(".local");
+    let state = fs::read(local.join("agents-state.json")).unwrap();
+    fs::write(local.join("agents-pending.json"), &state).unwrap();
+    fs::remove_file(info.code.join("CLAUDE.md")).unwrap();
+    let before = fs::read(local.join("agents-pending.json")).unwrap();
+    let report = operations::diagnose(&info.spec);
+    assert!(
+        report
+            .iter()
+            .any(|check| !check.ok && check.detail.contains("interrupted"))
+    );
+    assert_eq!(fs::read(local.join("agents-pending.json")).unwrap(), before);
+    assert!(!info.code.join("CLAUDE.md").exists());
+    agents::sync(&info).unwrap();
+    assert!(!local.join("agents-pending.json").exists());
+    assert!(info.code.join("CLAUDE.md").exists());
+    agents::check(&info).unwrap();
+    fs::write(local.join("agents-pending.json"), &state).unwrap();
+    fs::write(
+        info.code.join("CLAUDE.md"),
+        "User changed this after interruption",
+    )
+    .unwrap();
+    assert!(agents::sync(&info).is_err());
+    assert_eq!(
+        fs::read(info.code.join("CLAUDE.md")).unwrap(),
+        b"User changed this after interruption"
+    );
+}
+
+#[test]
+fn simultaneous_sync_and_malicious_ownership_paths_are_rejected() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(info.spec.join(".local/agents.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    assert!(
+        agents::sync(&info)
+            .unwrap_err()
+            .to_string()
+            .contains("Another")
+    );
+    drop(lock);
+    agents::sync(&info).unwrap();
+    let state_path = info.spec.join(".local/agents-state.json");
+    let mut state: Value = files::read_json(&state_path).unwrap();
+    state["files"]["code/../../outside"] = state["files"]["code/AGENTS.md"].clone();
+    files::write_json(&state_path, &state).unwrap();
+    assert!(agents::sync(&info).is_err());
+    assert!(!f.root.join("outside").exists());
+}
+
+#[test]
+fn adopted_definition_is_reported_when_agent_refresh_conflicts() {
+    let f = Fixture::new();
+    let info = f.clone();
+    fs::write(
+        info.editable_guidelines.join("profiles/rust.md"),
+        "# Updated Rust\n",
+    )
+    .unwrap();
+    commit(&info.editable_guidelines, "Update guidance");
+    git::run(&info.editable_guidelines, ["tag", "v0.2.0"]).unwrap();
+    fs::write(info.code.join("AGENTS.md"), "Local user edit").unwrap();
+    let error = operations::update(&info.spec, "v0.2.0", false, false).unwrap_err();
+    assert!(error.to_string().contains("definition is saved"));
+    let (manifest, _) = cretspec::manifest::read(&info.spec).unwrap();
+    assert_eq!(manifest.guidelines.reference, "v0.2.0");
+    assert_eq!(
+        fs::read(info.code.join("AGENTS.md")).unwrap(),
+        b"Local user edit"
+    );
+    fs::remove_file(info.code.join("AGENTS.md")).unwrap();
+    let updated = workspace::info(&info.spec, false, &|_| {}).unwrap();
+    agents::sync(&updated).unwrap();
+    agents::check(&updated).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_sources_and_targets_are_rejected_and_executable_resources_survive() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let f = Fixture::new();
+    let info = f.clone();
+    let source = skill_source(
+        &info.spec.join("spec/skills"),
+        "run-check",
+        "Use scripts/check.sh when asked",
+    );
+    fs::create_dir(source.join("scripts")).unwrap();
+    let script = source.join("scripts/check.sh");
+    fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    agents::sync(&info).unwrap();
+    let destination = info.code.join(".agents/skills/run-check/scripts/check.sh");
+    assert_ne!(
+        fs::metadata(destination).unwrap().permissions().mode() & 0o111,
+        0
+    );
+    symlink(f.root.join("outside"), source.join("escape")).unwrap();
+    assert!(agents::sync(&info).is_err());
+    fs::remove_file(source.join("escape")).unwrap();
+    let generated = info.code.join("CLAUDE.md");
+    fs::remove_file(&generated).unwrap();
+    symlink(f.root.join("outside"), &generated).unwrap();
+    assert!(agents::sync(&info).is_err());
+    assert!(!f.root.join("outside").exists());
+}
+
 #[test]
 fn references_work_across_transports_and_reject_credentials() {
     assert_eq!(
@@ -205,13 +767,16 @@ fn short_names_and_explicit_paths_have_distinct_meaning() {
 }
 
 #[test]
-fn clone_creates_only_three_repositories_and_an_exact_snapshot() {
+fn clone_creates_three_repositories_local_integrations_and_an_exact_snapshot() {
     let f = Fixture::new();
     fs::write(f.guidelines.join("draft.md"), "Uncommitted work").unwrap();
     let info = f.clone();
     assert_eq!(children(&f.destination), ["Sample"]);
     assert_eq!(
-        children(&info.project_root),
+        children(&info.project_root)
+            .into_iter()
+            .filter(|name| info.project_root.join(name).join(".git").is_dir())
+            .collect::<Vec<_>>(),
         ["CretAI", "Sample", "Sample-spec"]
     );
     assert_eq!(

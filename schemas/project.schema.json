@@ -18,6 +18,12 @@
         "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$" }
       }
     },
-    "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" }
+    "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
+    "agents": {
+      "type": "array", "uniqueItems": true,
+      "items": { "enum": ["codex", "claude", "copilot", "cursor"] },
+      "default": ["codex", "claude", "copilot", "cursor"],
+      "description": "Local agent integrations. Omit for all supported integrations or use [] to disable them."
+    }
   }
 }

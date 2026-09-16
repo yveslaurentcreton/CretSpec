@@ -21,6 +21,15 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 | `.local/` contains tracked files | Preserve needed content, remove it from Git's index, and keep `.local/` ignored. |
 | Interrupted update | Run `cspec guidelines recover`; see [recovery](/CretSpec/guides/guidelines/#recover-an-interrupted-update). |
 | Editor does not open | Use `project open --print`, then open the printed path manually. Linux desktop opening requires `xdg-open`. |
+| Missing or stale agent integrations | Run `cspec sync`; missing snapshots first require `cspec project info`. |
+| Edited or unmanaged generated file | Preserve its changes in the source or another file, remove only the reported generated output, then run `cspec sync`. |
+| Tracked generated path | Remove that generated file from Git's index while preserving the source. Do not publish private context with the product. |
+| Interrupted synchronization | Keep `.local/agents-pending.json` and retry `cspec sync`; user edits are not overwritten. |
+| Duplicate skill names in source repositories | Rename one source skill. Project and shared active names must be distinct. |
+| Duplicate skills shown by an editor | Select the integrations you use in `project.json`; compatibility readers can see both directories. Open one repository to narrow multi-root discovery. |
+| Skill not visible in an agent | Run doctor, check the selected integration and the host's skills/trust settings, then start a fresh agent session. Doctor checks files, not the running agent. |
+| Shared skill is only listed as a draft | Commit it in the editable guidelines repo and explicitly adopt that guidelines version. |
+| Another synchronization is running | Wait for that process to finish. The operating-system lock releases on process exit. |
 
 ## Failed cloning or initialization
 

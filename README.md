@@ -4,6 +4,8 @@
 
 CretSpec is a small native CLI that clones a project's spec, code and shared AI guidelines into one portable workspace. The spec owns the definition; a commit lock keeps adopted guidelines stable while you edit improvements separately.
 
+It prepares local instructions and skills for Codex, Claude Code, GitHub Copilot in VS Code and Cursor. Keep project knowledge in the spec and reusable skills in your shared guidelines.
+
 ```sh
 cspec config namespace your-account
 cspec project clone Atlas-spec
@@ -34,13 +36,15 @@ Native release archives require no Rust or Node.js installation. Homebrew, WinGe
 ```sh
 cspec project doctor
 cspec project open
+cspec context --json
+cspec skill list
 cspec guidelines edit
 cspec guidelines update v0.5.0 --fetch --preview
 ```
 
 Run these inside a prepared project. Replace example names and tags with your own. Use `cspec --help` for all commands.
 
-[Quick start](website/src/content/docs/start/quickstart.md) · [Concepts](website/src/content/docs/start/concepts.md) · [Commands](website/src/content/docs/reference/commands.md) · [Contributing](CONTRIBUTING.md)
+[Quick start](website/src/content/docs/start/quickstart.md) · [Agent workflow](website/src/content/docs/guides/agents.md) · [Commands](website/src/content/docs/reference/commands.md) · [Contributing](CONTRIBUTING.md)
 
 The documentation site is ready for GitHub Pages; deployment is not enabled yet.
 
