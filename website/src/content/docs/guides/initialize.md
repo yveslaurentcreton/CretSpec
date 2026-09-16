@@ -5,7 +5,7 @@ description: Create a project definition and Markdown specification from shared 
 
 Create the code repository and spec repository on your Git host first. Commit at least an initial file in the code repository so it has a branch to clone. Clone the new spec locally. CretSpec does not create remote repositories or commit on your behalf.
 
-Your selected guidelines version must contain `profiles/<profile>.md` and these Markdown templates under `templates/spec/spec/`:
+Your AI guidelines repository's selected version must contain `profiles/<profile>.md` and these Markdown templates under `templates/spec/spec/`:
 
 ```text
 vision.md          scope.md
@@ -21,7 +21,7 @@ Templates may include subdirectories and additional Markdown files. Hidden files
 From the directory containing the spec clone, run this as one command on any platform. Replace repository names, tag and profile with your own:
 
 ```sh
-cspec project init Atlas-spec --name Atlas --code ../Atlas --guidelines ../CretAI --ref v0.4.0 --profile rust
+cspec project init Atlas-spec --name Atlas --code ../Atlas --guidelines ../ai-guidelines --ref v0.4.0 --profile rust
 ```
 
 Relative sources resolve against the spec's Git origin. Without an origin, they resolve against its local repository path; this is useful for a local trial.

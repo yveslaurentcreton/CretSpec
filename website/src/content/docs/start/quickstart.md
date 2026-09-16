@@ -24,7 +24,7 @@ cspec project clone git@github.com:your-account/Atlas-spec.git
 
 ## 2. Inspect the project
 
-With a spec that names its product `Atlas` and guidelines repository `CretAI`, you get:
+With a spec that names its product `Atlas` and points to a repository named `ai-guidelines` containing your shared AI guidelines, you get:
 
 ```text
 Atlas/
@@ -34,7 +34,7 @@ Atlas/
 │   ├── spec/
 │   └── .local/           ignored, generated context
 ├── Atlas/               product code
-└── CretAI/              editable guidelines
+└── ai-guidelines/       editable AI guidelines
 ```
 
 The outer directory only groups your repositories. It has no project definition or Git repository of its own.

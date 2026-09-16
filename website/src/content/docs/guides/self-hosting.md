@@ -16,7 +16,7 @@ cspec project clone Atlas-spec
 cspec project clone git@git.example.com:team/Atlas-spec.git
 ```
 
-Use a full source for a repository on another server. Relative sources such as `../Atlas` and `../CretAI` resolve beside the spec's source. Remote specs cannot point to absolute local repositories.
+Use a full source for a repository on another server. Relative sources such as `../Atlas` and `../ai-guidelines` resolve beside the spec's source. Remote specs cannot point to absolute local repositories.
 
 ## Authentication
 

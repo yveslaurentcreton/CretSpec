@@ -17,7 +17,7 @@ Arrange your repositories as siblings inside an ordinary directory. The code dir
 Atlas/
 ├── Atlas-spec/
 ├── Atlas/
-└── CretAI/
+└── ai-guidelines/
 ```
 
 From the outer directory:

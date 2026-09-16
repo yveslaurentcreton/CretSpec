@@ -12,7 +12,7 @@ Commit both files in the spec repository root, alongside a `spec/` directory. JS
   "schemaVersion": 1,
   "name": "Atlas",
   "code": { "repository": "../Atlas" },
-  "guidelines": { "repository": "../CretAI", "ref": "v0.4.0" },
+  "guidelines": { "repository": "../ai-guidelines", "ref": "v0.4.0" },
   "profile": "rust"
 }
 ```
@@ -22,7 +22,7 @@ Commit both files in the spec repository root, alongside a `spec/` directory. JS
 | `schemaVersion` | Must be `1`. |
 | `name` | Default outer folder name and required code folder name. Starts with an ASCII letter, then letters, digits, `.`, `_` or `-`. Windows device names and trailing dots are rejected. |
 | `code.repository` | Code Git source. |
-| `guidelines.repository` | Shared guidelines Git source. |
+| `guidelines.repository` | Git source of your shared AI guidelines repository. |
 | `guidelines.ref` | Selected tag, commit or locally resolvable ref; prefer immutable tags. Starts with a letter/digit and contains only letters, digits, `.`, `_`, `/` or `-`. |
 | `profile` | Selects `profiles/<profile>.md` at the locked version. Starts with a letter, followed by letters, digits, `_` or `-`. |
 
@@ -33,7 +33,7 @@ Relative references resolve against the **spec source**, not the current termina
 | Spec source | Declared source | Resolved source |
 | --- | --- | --- |
 | `git@github.com:team/Atlas-spec.git` | `../Atlas` | `git@github.com:team/Atlas` |
-| `https://git.example.com/team/Atlas-spec.git` | `../CretAI` | `https://git.example.com/team/CretAI` |
+| `https://git.example.com/team/Atlas-spec.git` | `../ai-guidelines` | `https://git.example.com/team/ai-guidelines` |
 | Local `sources/Atlas-spec` repository | `../Atlas` | Sibling `sources/Atlas` repository |
 
 Use full HTTPS or SSH sources for other servers or owners. URLs containing credentials, query parameters or fragments are rejected. Remote Git helper syntax is unsupported. Remote specs cannot reference local absolute paths.

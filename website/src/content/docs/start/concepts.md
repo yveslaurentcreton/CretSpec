@@ -9,7 +9,7 @@ CretSpec connects three ordinary Git repositories. The specification is the star
 | --- | --- |
 | Project spec | Product intent, requirements, decisions and project definition |
 | Product code | Buildable, testable product and public documentation |
-| Shared guidelines | Reusable development principles, profiles, skills and templates |
+| AI guidelines | Shared development principles, profiles, skills and specification templates |
 
 `project.json` belongs in the spec. It names the code and guidelines sources, a guideline ref and a profile. `guidelines.lock.json` records the exact guidelines commit. The lock does not pin your product code, specification revision or installed CLI version.
 
@@ -23,7 +23,7 @@ Publishing a new guidelines release does not change every project. Each project 
 
 ## Method and mechanism
 
-Your guidelines can describe how requirements, milestones, stories, decisions and verification evidence work. They can contain language profiles, development principles and reusable skills. CretAI is the shared-guidelines repository used by this project's maintainer; CretSpec accepts another repository with the same supported structure.
+The AI guidelines repository defines your shared way of working: development principles, language profiles, reusable skills and how requirements, milestones, stories, decisions and verification evidence are organized. CretSpec works with any guidelines repository that provides the supported profile and template structure. Its name and location are defined in your spec; `ai-guidelines` is the example name used throughout these docs.
 
 CretSpec initializes Markdown from templates and prepares repository context. It does not decide story status, implement requirements or automatically activate skills in an editor. Use the adopted guidance to direct that work.
 

@@ -2,7 +2,7 @@
 
 **One specification. A complete development project.**
 
-CretSpec is a small native CLI that clones a project's spec, code and shared guidelines into one portable workspace. The spec owns the definition; a commit lock keeps adopted guidelines stable while you edit improvements separately.
+CretSpec is a small native CLI that clones a project's spec, code and shared AI guidelines into one portable workspace. The spec owns the definition; a commit lock keeps adopted guidelines stable while you edit improvements separately.
 
 ```sh
 cspec config namespace your-account
@@ -11,9 +11,9 @@ cspec project clone Atlas-spec
 
 ```text
 Atlas/
-├── Atlas-spec/   # project definition and specification
-├── Atlas/        # product code
-└── CretAI/       # editable shared guidelines
+├── Atlas-spec/     # project definition and specification
+├── Atlas/          # product code
+└── ai-guidelines/  # editable AI guidelines
 ```
 
 Three ordinary Git repositories. No outer manifest, project registry or application server. Works with existing Git authentication on Windows, macOS and Linux.
