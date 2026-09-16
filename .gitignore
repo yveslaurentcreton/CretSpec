@@ -1,4 +1,8 @@
 node_modules/
+target/
+dist/
+__pycache__/
+.astro/
 .local/
 *.tgz
 .DS_Store

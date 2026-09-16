@@ -1,0 +1,31 @@
+[package]
+name = "cretspec"
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.97"
+description = "Prepare a complete development project from its specification"
+license = "MIT"
+repository = "https://github.com/yveslaurentcreton/CretSpec"
+readme = "README.md"
+publish = false
+
+[[bin]]
+name = "cspec"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+tempfile = "3"
+path-clean = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
