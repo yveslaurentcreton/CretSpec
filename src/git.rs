@@ -7,12 +7,14 @@ use std::{
 };
 
 pub fn command(program: impl AsRef<OsStr>) -> Command {
-    let mut cmd = Command::new(program);
+    let cmd = Command::new(program);
     #[cfg(windows)]
-    {
+    let cmd = {
         use std::os::windows::process::CommandExt;
+        let mut cmd = cmd;
         cmd.creation_flags(0x08000000);
-    }
+        cmd
+    };
     cmd
 }
 
