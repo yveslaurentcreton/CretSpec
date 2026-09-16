@@ -1,7 +1,9 @@
+pub mod agents;
 pub mod config;
 pub mod files;
 pub mod git;
 pub mod manifest;
 pub mod operations;
 pub mod repository;
+pub mod skills;
 pub mod workspace;

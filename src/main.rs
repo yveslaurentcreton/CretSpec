@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use cretspec::{config, files, operations, workspace};
+use cretspec::{agents, config, files, operations, skills, workspace};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -16,6 +16,23 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Inspect workspace sources and agent readiness without changing files.
+    Context {
+        location: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Refresh local instructions and skills from the current project definition.
+    Sync {
+        location: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect skills or create a skill in its source repository.
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
     /// Configure the default repository namespace.
     Config {
         #[command(subcommand)]
@@ -30,6 +47,27 @@ enum Commands {
     Guidelines {
         #[command(subcommand)]
         command: GuidelinesCommand,
+    },
+}
+#[derive(Subcommand)]
+enum SkillCommand {
+    /// List active skills and editable shared drafts without changing files.
+    List {
+        location: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a standard skill scaffold without overwriting an existing skill.
+    Create {
+        name: String,
+        #[arg(long, value_enum)]
+        scope: skills::Scope,
+        #[arg(long)]
+        description: String,
+        #[arg(long)]
+        location: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
     },
 }
 #[derive(Subcommand)]
@@ -105,6 +143,98 @@ fn progress(message: &str) {
 
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
+        Commands::Context {
+            location: value,
+            json,
+        } => {
+            let info = workspace::info(&location(value)?, false, &progress)?;
+            let context = agents::context(&info)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&context)?);
+            } else {
+                println!(
+                    "{}\nSpec: {}\nCode: {}\nShared skill source: {}\nGuidelines: {} ({})\nAgent context: {}",
+                    info.manifest.name,
+                    info.spec.display(),
+                    info.code.display(),
+                    info.editable_guidelines.join("skills").display(),
+                    info.lock.reference,
+                    &info.lock.commit[..12],
+                    context["integration"]["detail"]
+                        .as_str()
+                        .unwrap_or_default()
+                );
+            }
+        }
+        Commands::Sync {
+            location: value,
+            json,
+        } => {
+            let info = workspace::info(&location(value)?, false, &progress)?;
+            let result = agents::sync(&info)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!(
+                    "Agent context synchronized: {} written, {} removed, {} unchanged.",
+                    result.written, result.removed, result.unchanged
+                );
+                if let Some(notice) = result.compatibility_notice {
+                    println!("{notice}");
+                }
+            }
+        }
+        Commands::Skill { command } => match command {
+            SkillCommand::List {
+                location: value,
+                json,
+            } => {
+                let info = workspace::info(&location(value)?, false, &progress)?;
+                let inventory = skills::inventory(&info)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&inventory)?);
+                } else {
+                    for skill in inventory.active {
+                        println!("{} ({:?}): {}", skill.name, skill.scope, skill.description);
+                    }
+                    for skill in inventory.shared_drafts {
+                        println!(
+                            "{} (shared working copy): {}",
+                            skill.name,
+                            skill.source.unwrap().display()
+                        );
+                    }
+                    for error in inventory.draft_errors {
+                        eprintln!("Shared draft issue: {error}");
+                    }
+                }
+            }
+            SkillCommand::Create {
+                name,
+                scope,
+                description,
+                location: value,
+                json,
+            } => {
+                let info = workspace::info(&location(value)?, false, &progress)?;
+                let source = skills::create(&info, &name, scope, &description)?;
+                let next = if scope == skills::Scope::Project {
+                    "Complete SKILL.md and its resources, then run cspec sync."
+                } else {
+                    "Complete the shared source, publish it through your Git workflow, then explicitly adopt that guidelines version."
+                };
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &serde_json::json!({"schemaVersion":1,"name":name,"scope":scope,"source":source,"nextStep":next})
+                        )?
+                    );
+                } else {
+                    println!("Skill source created: {}\n{next}", source.display());
+                }
+            }
+        },
         Commands::Config {
             command: ConfigCommand::Namespace { value },
         } => {
@@ -182,14 +312,11 @@ fn execute(cli: Cli) -> Result<()> {
                 let info = workspace::attach(&code, &spec, &progress)?;
                 println!("Project ready: {}", info.project_root.display());
             }
-            ProjectCommand::Info { location: value } => println!(
-                "{}",
-                serde_json::to_string_pretty(&workspace::info(
-                    &location(value)?,
-                    true,
-                    &progress
-                )?)?
-            ),
+            ProjectCommand::Info { location: value } => {
+                let info = workspace::info(&location(value)?, true, &progress)?;
+                agents::sync(&info)?;
+                println!("{}", serde_json::to_string_pretty(&info)?);
+            }
             ProjectCommand::Open(args) => {
                 let path = workspace::editor_workspace(&location(args.location)?)?;
                 println!("{}", path.display());

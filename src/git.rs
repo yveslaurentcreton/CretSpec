@@ -2,9 +2,38 @@ use crate::files;
 use anyhow::{Context, Result, bail};
 use std::{
     ffi::OsStr,
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+
+pub fn run_input(cwd: &Path, args: &[&str], input: &[u8]) -> Result<String> {
+    let mut child = command("git")
+        .args(["--no-optional-locks", "-c", "protocol.ext.allow=never"])
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Git could not be started")?;
+    let mut stdin = child.stdin.take().context("Missing Git input pipe")?;
+    let output = std::thread::scope(|scope| -> Result<_> {
+        let writer = scope.spawn(move || stdin.write_all(input));
+        let output = child.wait_with_output()?;
+        writer
+            .join()
+            .map_err(|_| anyhow::anyhow!("Git input writer failed"))??;
+        Ok(output)
+    })?;
+    if !output.status.success() {
+        bail!(
+            "Git command failed: {}",
+            redact(&String::from_utf8_lossy(&output.stderr)).trim()
+        );
+    }
+    String::from_utf8(output.stdout).context("Git returned text that is not valid UTF-8")
+}
 
 pub fn command(program: impl AsRef<OsStr>) -> Command {
     let cmd = Command::new(program);

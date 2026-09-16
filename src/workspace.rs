@@ -15,7 +15,7 @@ use std::{
 
 pub type Progress<'a> = &'a dyn Fn(&str);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectInfo {
     pub project_root: PathBuf,
@@ -343,7 +343,9 @@ pub fn clone_project(
             &repository::resolve(&manifest.code.repository, &source)?,
             &layout.code,
         )?;
-        info(&spec, true, progress)
+        let project = info(&spec, true, progress)?;
+        crate::agents::sync(&project)?;
+        Ok(project)
     })();
     result.with_context(|| format!("Project preparation failed. New directories preserved for inspection: {}\nExisting repositories have not been modified",preserved.display()))
 }
@@ -362,11 +364,14 @@ pub fn attach(code: &Path, spec: &Path, progress: Progress<'_>) -> Result<Projec
             expected.display()
         );
     }
-    info(&spec, true, progress)
+    let project = info(&spec, true, progress)?;
+    crate::agents::sync(&project)?;
+    Ok(project)
 }
 
 pub fn editor_workspace(start: &Path) -> Result<PathBuf> {
     let info = info(start, true, &|_| {})?;
+    crate::agents::sync(&info)?;
     let file = local_directory(&info.spec, true)?.join("project.code-workspace");
     let mut value: Value = if files::exists(&file)? {
         files::read_json(&file)?

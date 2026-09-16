@@ -17,6 +17,8 @@ Without a value, prints the configured namespace. With a value, saves a GitHub o
 
 ## Project commands
 
+Clone, attach, info and open also synchronize selected local agent integrations. Existing tracked instructions are preserved; conflicting generated paths are reported. Run `sync` after editing skill sources or changing the selected integrations.
+
 ```text
 cspec project clone <spec> [destination]
 ```
@@ -48,6 +50,8 @@ cspec project doctor [location] [--json]
 
 Checks Git availability, definition, origins, lock and prepared snapshot without changing files or fetching. `--json` prints an array of `{ "name", "ok", "detail" }` checks to stdout. Missing generated context is a failed check with preparation instructions.
 
+Also checks active skill sources, generated instructions/resources, Git exclusions and pending synchronization. It does not launch an agent or verify its runtime discovery.
+
 ```text
 cspec project open [location] [--print]
 ```
@@ -69,11 +73,42 @@ cspec guidelines update <reference> [location] [--preview] [--fetch]
 
 Resolves the selected ref and verifies its profile. Without `--preview`, writes the matching manifest ref and exact lock commit. `--preview` leaves these two files unchanged but may prepare the selected snapshot. `--fetch` runs `git fetch --tags origin` in the editable guidelines clone. Otherwise, the requested ref must exist locally. Drafts and the editable branch remain unchanged.
 
+The proposed active skills are validated before adoption. Successful adoption refreshes local agent integrations. If that refresh fails, the error distinguishes the already-saved definition from the remaining `cspec sync` repair.
+
 ```text
 cspec guidelines recover [location]
 ```
 
 Restores the original definition after an interrupted update, provided its files have not independently changed. Requires a local recovery journal.
+
+## Agent context and skills
+
+```text
+cspec context [location] [--json]
+```
+
+Read-only workspace context: source paths, exact guideline selection, instruction sources, active skills, shared drafts and integration readiness. A readable project with stale integrations produces a report with `integration.ready: false`; use doctor for a failing readiness exit code. Missing snapshots are not created. JSON uses the [versioned context format](/CretSpec/reference/skills/#structured-output).
+
+```text
+cspec skill list [location] [--json]
+```
+
+Lists active built-in, project and adopted shared skills, plus a separate shared working-copy catalog. Invalid shared drafts are reported in `draftErrors` without changing adopted skills. No files are changed and no scripts run.
+
+```text
+cspec skill create <name> --scope <project|shared> --description <description>
+  [--location <location>] [--json]
+```
+
+Creates a `SKILL.md` scaffold in the spec's `spec/skills/<name>/` or editable guidelines clone's `skills/<name>/`. Both scope and description are required, so automation cannot silently choose ownership. Returns the source path and next step. Refuses reserved/invalid names, active name collisions and existing destinations. It does not synchronize, commit, publish or adopt the new skill. Complete the source before activating it. The wrapped syntax describes one command.
+
+```text
+cspec sync [location] [--json]
+```
+
+Rebuilds selected agent instructions and full skill bundles from the current spec and adopted snapshot. Uses ordinary files, no symlinks, and preserves existing user content. Removes only unchanged outputs it previously owned. A pending synchronization can be retried with this command. It does not fetch, change the definition or create a missing snapshot; first use `project info` if preparation is missing.
+
+`--json` reports written, removed and unchanged counts plus any compatibility notice. See [generated-file ownership and recovery](/CretSpec/reference/skills/#generated-files).
 
 ## Exit status and output
 

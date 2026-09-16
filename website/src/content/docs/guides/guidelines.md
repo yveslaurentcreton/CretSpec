@@ -25,7 +25,7 @@ This fetches tags from the editable clone's origin, resolves the requested commi
 Inspect the actual changes in that clone when needed:
 
 ```sh
-git diff v0.4.0 v0.5.0 -- guidelines profiles templates
+git diff v0.4.0 v0.5.0 -- guidelines profiles templates skills
 ```
 
 ## Adopt the version
@@ -36,6 +36,8 @@ cspec project doctor
 ```
 
 Review and commit both `project.json` and `guidelines.lock.json` in your spec repository. Other projects keep their current locks. The requested ref must exist locally unless you add `--fetch`. Prefer immutable tags; reusing a tag for another commit fails the lock check.
+
+Adoption also refreshes local agent instructions and skills. Shared skills use the selected commit, while project skills use the current spec checkout. If the definition was saved but refresh encounters an edited output, the command states that the version is already adopted. Preserve and reconcile the reported file, then run `cspec sync`.
 
 To return to an earlier supported version, run the same update command with its tag, review the change and commit both files.
 
@@ -48,3 +50,5 @@ cspec guidelines recover
 ```
 
 Recovery restores the original pair and removes the journal. If either file was independently edited afterward, recovery refuses to overwrite those edits. Preserve and reconcile them first. Recovery rolls back an interrupted operation; it does not undo a completed, committed adoption.
+
+Run `cspec sync` after recovery to make generated agent context match the restored definition.

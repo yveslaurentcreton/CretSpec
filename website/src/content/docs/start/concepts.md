@@ -25,7 +25,7 @@ Publishing a new guidelines release does not change every project. Each project 
 
 The AI guidelines repository defines your shared way of working: development principles, language profiles, reusable skills and how requirements, milestones, stories, decisions and verification evidence are organized. CretSpec works with any guidelines repository that provides the supported profile and template structure. Its name and location are defined in your spec; `ai-guidelines` is the example name used throughout these docs.
 
-CretSpec initializes Markdown from templates and prepares repository context. It does not decide story status, implement requirements or automatically activate skills in an editor. Use the adopted guidance to direct that work.
+CretSpec initializes Markdown from templates and prepares instructions and discoverable skills for supported coding agents. Its built-in workflow skill explains how to use the spec and where to store new knowledge. Your agent follows the adopted method; CretSpec does not decide story status or implement requirements. See [working with your coding agent](/CretSpec/guides/agents/).
 
 ## Portable by construction
 

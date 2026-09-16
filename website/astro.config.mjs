@@ -17,6 +17,7 @@ export default defineConfig({
         { label: 'How it works', slug: 'start/concepts' },
       ] },
       { label: 'Everyday work', items: [
+        { label: 'Work with your coding agent', slug: 'guides/agents' },
         { label: 'Start a specification', slug: 'guides/initialize' },
         { label: 'Work with guidelines', slug: 'guides/guidelines' },
         { label: 'Move or attach a project', slug: 'guides/existing-projects' },
@@ -26,6 +27,7 @@ export default defineConfig({
       { label: 'Reference', items: [
         { label: 'Commands', slug: 'reference/commands' },
         { label: 'Project and lock files', slug: 'reference/manifest' },
+        { label: 'Skills and agent context', slug: 'reference/skills' },
         { label: 'Configuration', slug: 'reference/configuration' },
       ] },
       { label: 'Contribute', items: [
