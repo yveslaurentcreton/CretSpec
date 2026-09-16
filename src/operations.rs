@@ -65,6 +65,7 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
     )?;
     manifest::validate(&definition, &lock)?;
     git::run(&guidance, ["checkout", "--detach", &lock.commit])?;
+    files::directory(&guidance.join("profiles"))?;
     let profile = guidance
         .join("profiles")
         .join(format!("{}.md", options.profile));

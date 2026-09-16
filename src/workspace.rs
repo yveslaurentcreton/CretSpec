@@ -185,6 +185,7 @@ pub fn snapshot(
             "The cached guidelines differ from the lock or contain local changes. Preserve any work and remove that snapshot before retrying."
         );
     }
+    files::directory(&active.join("profiles"))?;
     let profile = active
         .join("profiles")
         .join(format!("{}.md", manifest.profile));
