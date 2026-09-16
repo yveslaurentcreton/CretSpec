@@ -22,13 +22,13 @@ Projects/
     CretAI/                       editable guidelines repository
 ```
 
-CretSpec is installed separately. Its source belongs outside the projects directory, for example in `D:/cspec-tools/CretSpec`. The project root contains no Git repository, manifest or editor file of its own.
+CretSpec is installed separately from project checkouts. When developing CretSpec itself, its source can use the same layout: `Projects/CretSpec/` contains `CretSpec-spec/`, `CretSpec/` and editable guidelines. Other projects do not need a CretSpec source clone. The project root contains no Git repository, manifest or editor file of its own.
 
 ## Install on Windows, Linux or macOS
 
 Install Git and Node.js 22 or later, including npm. Git needs access to the repositories through SSH or HTTPS with your credential manager.
 
-From a tools directory, install a fixed copy of CretSpec:
+Clone the source into a directory of your choice and install a fixed copy of CretSpec:
 
 ```sh
 git clone <CretSpec-repository-url> CretSpec
@@ -39,6 +39,8 @@ cspec --version
 ```
 
 There is no npm registry release or standalone installer yet. Package and install each new version to update. Editing the source does not change an installed tarball.
+
+If you already have the source in a development project, run the packaging and installation commands from that checkout; a second clone is unnecessary.
 
 These commands work in PowerShell, Bash and Zsh. If PowerShell blocks a script launcher, use `npm.cmd` or `cspec.cmd`. The global npm prefix must be writable by your account.
 
