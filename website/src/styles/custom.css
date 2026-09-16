@@ -1,0 +1,49 @@
+:root {
+  --sl-color-accent-low: #38251b;
+  --sl-color-accent: #dd6a38;
+  --sl-color-accent-high: #f5b394;
+  --sl-color-black: #151817;
+  --sl-color-gray-6: #202422;
+  --sl-font: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --sl-font-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  --sl-content-width: 49rem;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #fbeadd;
+  --sl-color-accent: #a84218;
+  --sl-color-accent-high: #713315;
+  --sl-color-white: #1c2923;
+  --sl-color-gray-1: #26382e;
+  --sl-color-gray-2: #44554b;
+  --sl-color-gray-3: #617068;
+  --sl-color-gray-4: #9ca79f;
+  --sl-color-gray-5: #d8ded6;
+  --sl-color-gray-6: #eef0e9;
+  --sl-color-gray-7: #f4f5ef;
+  --sl-color-black: #fafbf6;
+}
+.site-title { font-weight: 750; letter-spacing: -.045em; }
+h1, h2, h3 { letter-spacing: -.035em; }
+.hero { padding-block: clamp(2.5rem, 6vw, 6rem); }
+.hero h1 { max-width: 14ch; font-size: clamp(2.7rem, 6vw, 4.8rem); line-height: 1.02; }
+.hero .tagline { max-width: 40rem; font-size: 1.15rem; line-height: 1.65; }
+.sl-link-button { border-radius: .25rem; font-weight: 600; }
+.sl-markdown-content :is(h2,h3):not(:where(.not-content *)) { margin-top: 2.4rem; }
+.terminal { background: #19251f; color: #edf1e9; border: 1px solid #35483e; border-radius: .4rem; overflow: hidden; }
+.terminal-bar { padding: .8rem 1.4rem; border-bottom: 1px solid #35483e; font: .75rem var(--sl-font-mono); letter-spacing: .1em; color: #bccbbf; }
+.terminal-body { padding: 1.5rem 1.7rem; overflow-x: auto; font: .9rem/1.8 var(--sl-font-mono); }
+.terminal-body pre { margin: 0; background: none; padding: 0; font: inherit; border: 0; color: inherit; }
+.terminal-body .prompt { color: #f4aa79; }
+.terminal-body .muted { color: #becac0; }
+.workflow { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--sl-color-gray-5); border-bottom: 1px solid var(--sl-color-gray-5); margin-top: 3rem; }
+.workflow article { padding: 1.5rem 1.5rem 1.5rem 0; }
+.workflow article + article { border-left: 1px solid var(--sl-color-gray-5); padding-left: 1.5rem; }
+.workflow .number { font: .75rem var(--sl-font-mono); color: var(--sl-color-accent); }
+.workflow h2 { font-size: 1.15rem; margin: .8rem 0 .6rem !important; }
+.workflow p { font-size: .95rem; margin: 0; }
+.footnote { font-size: .85rem; color: var(--sl-color-gray-3); }
+@media (max-width: 42rem) {
+  .workflow { grid-template-columns: 1fr; }
+  .workflow article + article { border-left: 0; border-top: 1px solid var(--sl-color-gray-5); padding-left: 0; }
+  .terminal-body { padding: 1.1rem; font-size: .78rem; }
+}
