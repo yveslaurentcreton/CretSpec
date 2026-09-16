@@ -16,11 +16,11 @@ cspec project open
 
 Open your agent in the outer workspace or one of its three repositories. CretSpec prepares entry points at each location. Allow access to sibling repositories when your host requires it. You can ask:
 
-> Read this project's adopted guidelines and specification, then explain the next agreed story.
+> Read this project's active guidelines and specification, then explain the next agreed story.
 
-The generated instructions identify the source repositories, selected profile and exact guidelines version. The built-in `cspec-workspace` skill explains the workflow and CLI. Your shared guidelines define your development principles and specification method; your spec defines concrete requirements, milestones, stories, decisions and evidence.
+The generated instructions identify the source repositories, selected profile and active guidelines mode. The built-in `cspec-workspace` skill explains the workflow and CLI. Your shared guidelines define your development principles and specification method; your spec defines concrete requirements, milestones, stories, decisions and evidence.
 
-For an existing workspace, run `cspec project info` once with the new executable. It prepares missing snapshots and integrations. Use `cspec sync` for subsequent source changes without fetching or adopting another guidelines version.
+For an existing workspace, run `cspec project info` once with the new executable. It prepares missing integrations and, for pinned projects, snapshots. Use `cspec sync` for subsequent source changes without fetching or adopting another guidelines version.
 
 ## Save an approach
 
@@ -29,7 +29,8 @@ Ask your agent to turn a useful approach into a skill. If the intended scope is 
 | Scope | Editable source | When it becomes available |
 | --- | --- | --- |
 | Project | `Atlas-spec/spec/skills/<name>/` | After `cspec sync` |
-| Shared | `ai-guidelines/skills/<name>/` | After committing the change and explicitly adopting that guidelines version |
+| Shared, working-tree mode | `ai-guidelines/skills/<name>/` | After `cspec sync`, including uncommitted changes |
+| Shared, pinned mode | `ai-guidelines/skills/<name>/` | After explicitly adopting the committed guidelines version |
 | Built-in | Included in the installed CretSpec executable | When its integrations are synchronized |
 
 ```sh
@@ -44,7 +45,11 @@ cspec skill list
 cspec sync
 ```
 
-Project skill sources use your current spec checkout, including drafts. Shared working-copy skills are listed separately and do not silently replace the adopted version. Follow [guidelines adoption](/CretSpec/guides/guidelines/) to activate a shared change. The guidelines lock pins shared skills as well as rules.
+Project skills always use the current spec checkout. Shared skills use the editable guidelines checkout by default; `skill list` includes local changes in its active catalog. Editing a guideline needs no commit to make its contents readable. An already running agent may need to reread the source; skills may need a new session after synchronization, depending on the host.
+
+Clone retrieves shared skills with the guidelines repository and prepares their generated copies. Later, use Git fetch/pull inside that repository to bring in changes from another project, then `cspec sync`. CretSpec performs no automatic Git update.
+
+In pinned mode, shared working-copy skills are listed separately as drafts. The lock selects shared rules and skills together. Follow [guidelines management](/CretSpec/guides/guidelines/) to pin or unlock explicitly.
 
 ## Choose integrations
 

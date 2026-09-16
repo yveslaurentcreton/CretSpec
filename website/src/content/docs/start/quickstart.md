@@ -3,7 +3,7 @@ title: Clone your first project
 description: Go from one spec repository to a complete local project.
 ---
 
-Start with [CretSpec and Git installed](/CretSpec/start/install/), Git access to all three repositories, and a spec containing `project.json`, `guidelines.lock.json` and `spec/`. If you do not have that spec yet, [initialize one](/CretSpec/guides/initialize/).
+Start with [CretSpec and Git installed](/CretSpec/start/install/), Git access to all three repositories, and a spec containing `project.json` and `spec/` (plus `guidelines.lock.json` if pinned). If you do not have that spec yet, [initialize one](/CretSpec/guides/initialize/).
 
 ## 1. Choose your projects directory
 
@@ -32,7 +32,6 @@ Atlas/
 ├── CLAUDE.md            generated Claude entry point
 ├── Atlas-spec/
 │   ├── project.json
-│   ├── guidelines.lock.json
 │   ├── spec/
 │   └── .local/           ignored, generated context
 ├── Atlas/               product code
@@ -47,7 +46,7 @@ cspec project doctor
 cspec project info
 ```
 
-`doctor` checks without changing files. `info` shows JSON with paths, manifest and lock; it can prepare missing local context.
+`doctor` checks without changing files. `info` shows JSON with paths, manifest, guidelines state and optional lock; it can prepare missing local context.
 
 ## 3. Open your editor
 
@@ -57,6 +56,6 @@ cspec project open
 
 This generates `Atlas-spec/.local/project.code-workspace` and asks the operating system to open it. Associate `.code-workspace` with VS Code or a compatible editor. With another editor, open the three folders directly. `cspec project open --print` generates and prints the file without launching an application.
 
-You can now edit and commit code, specification and shared guidelines in their respective repositories. Each keeps its own branches and history.
+You can now edit and commit code, specification and shared guidelines in their respective repositories. Each keeps its own branches and history. Local guideline edits are active immediately in the default working-tree mode; run `cspec sync` after changing skills. Fetch and pull shared changes with Git when you want them.
 
-Your coding agent can now discover the prepared instructions and skills. Ask it to read the project's specification and adopted guidance. Follow [the agent workflow](/CretSpec/guides/agents/) to create project or shared skills and check their availability.
+Your coding agent can now discover the prepared instructions and skills. Ask it to read the project's specification and active guidance. Follow [the agent workflow](/CretSpec/guides/agents/) to create project or shared skills and check their availability.

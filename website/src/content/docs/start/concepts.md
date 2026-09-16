@@ -1,6 +1,6 @@
 ---
 title: How it works
-description: Understand the three repositories and the exact guidelines lock.
+description: Understand the three repositories, local guidelines and optional pinning.
 ---
 
 CretSpec connects three ordinary Git repositories. The specification is the starting point.
@@ -11,21 +11,25 @@ CretSpec connects three ordinary Git repositories. The specification is the star
 | Product code | Buildable, testable product and public documentation |
 | AI guidelines | Shared development principles, profiles, skills and specification templates |
 
-`project.json` belongs in the spec. It names the code and guidelines sources, a guideline ref and a profile. `guidelines.lock.json` records the exact guidelines commit. The lock does not pin your product code, specification revision or installed CLI version.
+`project.json` belongs in the spec. It names the code and guidelines sources, a guidelines branch and a profile. New projects use that editable guidelines checkout directly. An optional `guidelines.lock.json` selects an exact commit instead.
 
-## Editable and adopted guidelines
+## Local guidelines by default
 
-The guidelines clone next to your code is editable. It is where you propose improvements, create branches and publish shared changes using Git.
+The guidelines clone next to your code is the active source. Local edits to rules are readable immediately, including uncommitted changes. Run `cspec sync` after editing skills to refresh the generated copies your agents discover.
 
-The spec's ignored `.local/guidelines/<commit>/` directory is a separate, detached checkout at the locked commit. It provides stable guidance while you work on a proposal. CretSpec rejects modified snapshots instead of silently treating local edits as adopted guidance.
+Clone fetches the repositories once. After that, use ordinary Git fetch/pull/commit/push to exchange changes. Opening a project or running info, context, doctor or sync never fetches, pulls or switches an existing guidelines checkout. Each project has its own clone.
 
-Publishing a new guidelines release does not change every project. Each project explicitly [adopts a version](/CretSpec/guides/guidelines/).
+## Pin a version when needed
+
+A pinned project reads a detached checkout under the spec's ignored `.local/guidelines/<commit>/`. Its lock selects shared rules and skills; local guideline drafts stay separate. The lock does not pin your product code, spec revision or installed CLI.
+
+Existing locked projects stay pinned. Use [guidelines update or unlock](/CretSpec/guides/guidelines/) to switch explicitly. CretSpec preserves drafts and existing snapshots during a mode change.
 
 ## Method and mechanism
 
 The AI guidelines repository defines your shared way of working: development principles, language profiles, reusable skills and how requirements, milestones, stories, decisions and verification evidence are organized. CretSpec works with any guidelines repository that provides the supported profile and template structure. Its name and location are defined in your spec; `ai-guidelines` is the example name used throughout these docs.
 
-CretSpec initializes Markdown from templates and prepares instructions and discoverable skills for supported coding agents. Its built-in workflow skill explains how to use the spec and where to store new knowledge. Your agent follows the adopted method; CretSpec does not decide story status or implement requirements. See [working with your coding agent](/CretSpec/guides/agents/).
+CretSpec initializes Markdown from templates and prepares instructions and discoverable skills for supported coding agents. Its built-in workflow skill explains how to use the spec and where to store new knowledge. Your agent follows the active method; CretSpec does not decide story status or implement requirements. See [working with your coding agent](/CretSpec/guides/agents/).
 
 ## Portable by construction
 

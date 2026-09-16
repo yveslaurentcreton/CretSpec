@@ -28,7 +28,11 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 | Duplicate skill names in source repositories | Rename one source skill. Project and shared active names must be distinct. |
 | Duplicate skills shown by an editor | Select the integrations you use in `project.json`; compatibility readers can see both directories. Open one repository to narrow multi-root discovery. |
 | Skill not visible in an agent | Run doctor, check the selected integration and the host's skills/trust settings, then start a fresh agent session. Doctor checks files, not the running agent. |
-| Shared skill is only listed as a draft | Commit it in the editable guidelines repo and explicitly adopt that guidelines version. |
+| Shared skill is only listed as a draft | The project is pinned. Commit and explicitly adopt the version, or use `guidelines unlock` to use local sources. |
+| Working-tree guidelines are behind | Use Git fetch and pull in the guidelines clone, then `cspec sync`. Counts reflect cached refs. |
+| Dirty, detached or unexpected guidelines branch | Local contents remain active. Review them and select the intended branch using Git. |
+| Explicit pinned mode has no lock | Restore the original lock, then use `guidelines unlock` if you intend to switch modes. |
+| Working-tree ref is a tag or commit | Restore a valid branch definition first; then use `guidelines update` if you want to pin that version. |
 | Another synchronization is running | Wait for that process to finish. The operating-system lock releases on process exit. |
 
 ## Failed cloning or initialization

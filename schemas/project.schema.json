@@ -15,7 +15,8 @@
       "type": "object", "additionalProperties": false, "required": ["repository", "ref"],
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
-        "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$" }
+        "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Branch for workingTree; selected version for pinned mode." },
+        "mode": { "enum": ["workingTree", "pinned"], "description": "Omit to infer pinned when a lock exists, workingTree otherwise. Explicit modes require matching lock presence." }
       }
     },
     "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
