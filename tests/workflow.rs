@@ -1599,7 +1599,10 @@ fn optional_pinning_and_unlock_preserve_drafts_snapshots_and_preview_definition(
     let unlocked = workspace::info(&info.code, false, &|_| {}).unwrap();
     assert!(unlocked.lock.is_none());
     assert!(unlocked.guidelines.dirty);
-    assert_eq!(unlocked.active_guidelines, info.editable_guidelines);
+    assert!(files::same(
+        &unlocked.active_guidelines,
+        &info.editable_guidelines
+    ));
     assert!(pinned.active_guidelines.is_dir());
     assert!(
         info.code
