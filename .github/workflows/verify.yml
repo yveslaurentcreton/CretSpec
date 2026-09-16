@@ -88,9 +88,10 @@ jobs:
         working-directory: dist
       - run: ruby -c dist/packages/homebrew/Formula/cretspec.rb
       - run: bash -n dist/packages/aur/PKGBUILD
+      - run: ./scripts/validate-winget.ps1 -Directory dist/packages/winget
+        shell: pwsh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-bundle
           path: dist
           include-hidden-files: true
-
