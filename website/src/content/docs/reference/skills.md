@@ -27,8 +27,8 @@ The description explains when to use the skill. Detailed instructions and links 
 ## Sources and validation
 
 - Project skills: `<spec>/spec/skills/<name>/`, read from the working tree.
-- Shared skill drafts: `<editable-guidelines>/skills/<name>/`.
-- Adopted shared skills: `<spec>/.local/guidelines/<commit>/skills/<name>/`.
+- Shared skills in working-tree mode: `<editable-guidelines>/skills/<name>/`, including uncommitted changes.
+- Shared skills in pinned mode: `<spec>/.local/guidelines/<commit>/skills/<name>/`; the editable source is a separate draft catalog.
 - Built-in `cspec-workspace`: embedded in the executable, reserved and versioned with CretSpec.
 
 Names contain 1–64 lowercase ASCII letters, digits and single hyphens, with no leading/trailing hyphen or Windows device name. The YAML `name` must match its directory. The description must be nonempty and at most 1024 characters. UTF-8 and CRLF are accepted, including folded YAML descriptions. Duplicate active names across project and shared sources are rejected instead of silently overriding one another.
@@ -37,7 +37,7 @@ The source directory may contain a `README.md` catalog alongside its skill direc
 
 Full bundles are copied, including references, assets and scripts. Unix executable permissions are preserved. Scripts are never executed during clone, sync or skill creation. Declare platform dependencies and use cross-platform commands when intended for all supported operating systems.
 
-An invalid shared draft is reported separately by `skill list` and does not invalidate adopted skills. A requested guidelines update validates its proposed active skill set before changing the project definition.
+In pinned mode, an invalid shared draft is reported separately by `skill list` and does not invalidate adopted skills. In working-tree mode the editable source is active, so invalid shared skills fail validation. Pinning and unlocking validate the proposed active skill set before changing the definition.
 
 ## Generated files
 
@@ -68,6 +68,8 @@ The new JSON responses have `schemaVersion: 1`. Errors go to stderr and command 
 | `skill create ... --json` | `schemaVersion`, `name`, `scope`, `source`, `nextStep` |
 | `sync --json` | `schemaVersion`, `written`, `removed`, `unchanged`, `compatibilityNotice` |
 
-`project` has the same fields as `project info`. `skillSources` has `project`, `shared` and `activeShared` paths. Skills have `name`, `description`, `scope` (`project`, `shared` or `builtin`) and `source`; the built-in source is `null` because it is embedded. Shared working-copy entries may match adopted skills; they describe an editable source, not an additional active skill.
+`project` has the same fields as `project info`. `skillSources` has `project`, `shared` and `activeShared` paths. Skills have `name`, `description`, `scope` (`project`, `shared` or `builtin`) and `source`; the built-in source is `null` because it is embedded. In working-tree mode, `shared` and `activeShared` point to the same source and `sharedDrafts` is empty. In pinned mode, working-copy entries are a separate editable catalog and may match adopted skills.
+
+`project.lock` is `null` in working-tree mode. `project.guidelines` contains `mode`, `commit` (active HEAD), `branch`, `dirty`, `upstream`, `ahead` and `behind`. Branch and upstream may be `null`; divergence counts are `null` when unavailable. Counts use locally cached upstream refs and say nothing about remote freshness. With local changes, HEAD does not identify the exact active contents. Pinned snapshots have a detached HEAD and no upstream.
 
 `integration` contains `ready` and `detail`. A context report can succeed with `ready: false`: the sources are readable but generated context needs attention. Use `project doctor --json` when a readiness failure must produce exit status 1. Filesystem access or invalid source errors still fail `context` itself.

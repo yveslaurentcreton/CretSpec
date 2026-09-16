@@ -2,7 +2,7 @@
 
 **One specification. A complete development project.**
 
-CretSpec is a small native CLI that clones a project's spec, code and shared AI guidelines into one portable workspace. The spec owns the definition; a commit lock keeps adopted guidelines stable while you edit improvements separately.
+CretSpec is a small native CLI that clones a project's spec, code and shared AI guidelines into one portable workspace. The spec owns the definition; local guidelines are active by default, with optional commit pinning.
 
 It prepares local instructions and skills for Codex, Claude Code, GitHub Copilot in VS Code and Cursor. Keep project knowledge in the spec and reusable skills in your shared guidelines.
 
@@ -39,10 +39,10 @@ cspec project open
 cspec context --json
 cspec skill list
 cspec guidelines edit
-cspec guidelines update v0.5.0 --fetch --preview
+cspec sync
 ```
 
-Run these inside a prepared project. Replace example names and tags with your own. Use `cspec --help` for all commands.
+Run these inside a prepared project. Use ordinary Git fetch/pull to update its guidelines clone, then `cspec sync` to refresh skills. [Pin a version](website/src/content/docs/guides/guidelines.md) when needed. Replace example names with your own. Use `cspec --help` for all commands.
 
 [Quick start](website/src/content/docs/start/quickstart.md) · [Agent workflow](website/src/content/docs/guides/agents.md) · [Commands](website/src/content/docs/reference/commands.md) · [Contributing](CONTRIBUTING.md)
 

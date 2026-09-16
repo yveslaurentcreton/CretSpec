@@ -237,15 +237,17 @@ pub fn active(info: &ProjectInfo) -> Result<Vec<Bundle>> {
     }];
     bundles.extend(scan(&info.spec.join("spec/skills"), Scope::Project)?);
     let adopted = scan(&info.active_guidelines.join("skills"), Scope::Shared)?;
-    let tracked = git::run(&info.active_guidelines, ["ls-files", "-z", "--", "skills"])?;
-    let tracked: BTreeSet<_> = tracked.split('\0').collect();
-    for bundle in &adopted {
-        for name in bundle.files.keys() {
-            let path = format!("skills/{}/{name}", bundle.skill.name);
-            if !tracked.contains(path.as_str()) {
-                bail!(
-                    "Adopted skill contains a file outside the locked Git snapshot: {path}. Preserve and remove that local addition before retrying."
-                );
+    if info.lock.is_some() {
+        let tracked = git::run(&info.active_guidelines, ["ls-files", "-z", "--", "skills"])?;
+        let tracked: BTreeSet<_> = tracked.split('\0').collect();
+        for bundle in &adopted {
+            for name in bundle.files.keys() {
+                let path = format!("skills/{}/{name}", bundle.skill.name);
+                if !tracked.contains(path.as_str()) {
+                    bail!(
+                        "Adopted skill contains a file outside the locked Git snapshot: {path}. Preserve and remove that local addition before retrying."
+                    );
+                }
             }
         }
     }
@@ -254,7 +256,7 @@ pub fn active(info: &ProjectInfo) -> Result<Vec<Bundle>> {
     for pair in bundles.windows(2) {
         if pair[0].skill.name == pair[1].skill.name {
             bail!(
-                "Skill '{}' exists in both project and adopted shared sources. Rename one source skill before synchronizing.",
+                "Skill '{}' exists in both project and active shared sources. Rename one source skill before synchronizing.",
                 pair[0].skill.name
             );
         }
@@ -272,11 +274,14 @@ pub fn active(info: &ProjectInfo) -> Result<Vec<Bundle>> {
 
 pub fn inventory(info: &ProjectInfo) -> Result<Inventory> {
     let active = active(info)?.into_iter().map(|b| b.skill).collect();
-    let (shared_drafts, draft_errors) =
+    let (shared_drafts, draft_errors) = if info.lock.is_none() {
+        (vec![], vec![])
+    } else {
         match scan(&info.editable_guidelines.join("skills"), Scope::Shared) {
             Ok(bundles) => (bundles.into_iter().map(|b| b.skill).collect(), vec![]),
             Err(error) => (vec![], vec![format!("{error:#}")]),
-        };
+        }
+    };
     Ok(Inventory {
         schema_version: 1,
         active,

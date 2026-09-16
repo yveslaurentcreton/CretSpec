@@ -1,6 +1,6 @@
 use crate::{
     files, git,
-    manifest::{self, Guidelines, Lock, Manifest, Source},
+    manifest::{self, Guidelines, GuidelinesMode, Lock, Manifest, Source},
     repository, workspace,
 };
 use anyhow::{Context, Result, bail};
@@ -16,7 +16,8 @@ pub struct InitOptions<'a> {
     pub name: &'a str,
     pub code: &'a str,
     pub guidelines: &'a str,
-    pub reference: &'a str,
+    pub reference: Option<&'a str>,
+    pub pinned: bool,
     pub profile: &'a str,
 }
 
@@ -30,7 +31,10 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
             );
         }
     }
-    let definition = Manifest {
+    if options.pinned && options.reference.is_none() {
+        bail!("Pinned initialization requires --ref.");
+    }
+    let mut definition = Manifest {
         schema_version: 1,
         name: options.name.into(),
         code: Source {
@@ -38,50 +42,50 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
         },
         guidelines: Guidelines {
             repository: options.guidelines.into(),
-            reference: options.reference.into(),
+            reference: options.reference.unwrap_or("HEAD").into(),
+            mode: Some(if options.pinned {
+                GuidelinesMode::Pinned
+            } else {
+                GuidelinesMode::WorkingTree
+            }),
         },
         profile: options.profile.into(),
         agents: manifest::default_agents(),
     };
     // Validate user inputs before fetching any repository.
-    let mut lock = Lock {
+    let mut lock = options.pinned.then(|| Lock {
         schema_version: 1,
-        reference: options.reference.into(),
+        reference: options.reference.unwrap().into(),
         commit: "0".repeat(40),
-    };
-    manifest::validate(&definition, &lock)?;
+    });
+    manifest::validate(&definition, lock.as_ref())?;
     let source = repository::origin(&spec)?;
     let layout = workspace::paths(&spec, &definition, &source)?;
     repository::resolve(options.code, &source)?;
     let temporary = tempfile::Builder::new().prefix("cspec-init-").tempdir()?;
     let guidance = temporary.path().join("guidelines");
     git::clone(&layout.guidelines_source, &guidance)?;
-    lock.commit = git::run(
-        &guidance,
-        [
-            "rev-parse",
-            "--verify",
-            &format!("{}^{{commit}}", lock.reference),
-        ],
-    )?;
-    manifest::validate(&definition, &lock)?;
-    git::run(&guidance, ["checkout", "--detach", &lock.commit])?;
-    files::directory(&guidance.join("profiles"))?;
-    let profile = guidance
-        .join("profiles")
-        .join(format!("{}.md", options.profile));
-    if !fs::symlink_metadata(&profile)
-        .with_context(|| {
-            format!(
-                "Profile '{}' does not exist in {}",
-                options.profile, options.reference
-            )
-        })?
-        .file_type()
-        .is_file()
-    {
-        bail!("Profile must be a regular file.");
+    if let Some(lock) = &mut lock {
+        lock.commit = git::run(
+            &guidance,
+            [
+                "rev-parse",
+                "--verify",
+                &format!("{}^{{commit}}", lock.reference),
+            ],
+        )?;
+        git::run(&guidance, ["checkout", "--detach", &lock.commit])?;
+    } else {
+        definition.guidelines.reference = match options.reference {
+            Some(branch) => branch.to_owned(),
+            None => git::run(&guidance, ["symbolic-ref", "--short", "HEAD"])
+                .context("The guidelines source needs a default branch or an explicit --ref")?,
+        };
+        workspace::validate_branch(&guidance, &definition.guidelines.reference)?;
+        git::run(&guidance, ["switch", &definition.guidelines.reference])?;
     }
+    manifest::validate(&definition, lock.as_ref())?;
+    workspace::validate_profile(&guidance, options.profile)?;
     let template = guidance.join("templates/spec/spec");
     let mut content = Vec::new();
     collect_template(&template, &template, &mut content)?;
@@ -116,7 +120,9 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
     fs::rename(&staged_spec, spec.join("spec"))?;
     let result = (|| -> Result<()> {
         write_new_json(&spec.join("project.json"), &definition)?;
-        write_new_json(&spec.join("guidelines.lock.json"), &lock)?;
+        if let Some(lock) = &lock {
+            write_new_json(&spec.join("guidelines.lock.json"), lock)?;
+        }
         workspace::local_directory(&spec, true)?;
         Ok(())
     })();
@@ -209,8 +215,8 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
                 detail: format!(
                     "{}; guidance {} ({})",
                     info.manifest.name,
-                    info.lock.reference,
-                    &info.lock.commit[..12]
+                    info.manifest.guidelines.reference,
+                    &info.guidelines.commit[..12]
                 ),
             });
             let (ok, detail) = match crate::agents::check(&info) {
@@ -222,6 +228,50 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
                 ok,
                 detail,
             });
+            if info.guidelines.mode == GuidelinesMode::WorkingTree {
+                let state = &info.guidelines;
+                let mut notices = Vec::new();
+                if state.dirty {
+                    notices.push(
+                        "local changes are active; HEAD alone does not identify these contents"
+                            .to_owned(),
+                    );
+                }
+                match &state.branch {
+                    None => notices.push("detached HEAD; use Git to select a branch".into()),
+                    Some(branch) if branch != &info.manifest.guidelines.reference => {
+                        notices.push(format!(
+                            "active branch {branch} differs from configured {}",
+                            info.manifest.guidelines.reference
+                        ))
+                    }
+                    _ => {}
+                }
+                if state.upstream.is_none() {
+                    notices.push("no upstream configured".into());
+                }
+                if state.ahead.is_some_and(|n| n > 0) {
+                    notices.push(format!(
+                        "{} commits ahead of cached upstream",
+                        state.ahead.unwrap()
+                    ));
+                }
+                if state.behind.is_some_and(|n| n > 0) {
+                    notices.push(format!(
+                        "{} commits behind cached upstream",
+                        state.behind.unwrap()
+                    ));
+                }
+                checks.push(Check {
+                    name: "Guidelines working tree".into(),
+                    ok: true,
+                    detail: if notices.is_empty() {
+                        "Local working tree is active. Remote freshness was not checked; use Git to fetch/pull.".into()
+                    } else {
+                        format!("Warning: {}. No Git state was changed or fetched.", notices.join("; "))
+                    },
+                });
+            }
         }
         Err(error) => checks.push(Check {
             name: "Project".into(),
@@ -235,7 +285,7 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateResult {
-    pub previous: Lock,
+    pub previous: workspace::GuidelinesState,
     pub selected: Lock,
     pub applied: bool,
     pub changes: String,
@@ -245,9 +295,9 @@ pub struct UpdateResult {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Journal {
     old_manifest: String,
-    old_lock: String,
+    old_lock: Option<String>,
     new_manifest: Manifest,
-    new_lock: Lock,
+    new_lock: Option<Lock>,
 }
 
 pub fn update(start: &Path, reference: &str, preview: bool, fetch: bool) -> Result<UpdateResult> {
@@ -262,84 +312,157 @@ pub fn update(start: &Path, reference: &str, preview: bool, fetch: bool) -> Resu
         &info.editable_guidelines,
         ["rev-parse", "--verify", &format!("{reference}^{{commit}}")],
     )
-    .context("Requested guidelines version is unavailable. Fetch tags first or use --fetch")?;
+    .context("Requested guidelines version is unavailable. Fetch it with Git or use --fetch")?;
     let mut definition = info.manifest.clone();
     definition.guidelines.reference = reference.into();
+    definition.guidelines.mode = Some(GuidelinesMode::Pinned);
     let selected = Lock {
         schema_version: 1,
         reference: reference.into(),
         commit: hash,
     };
-    manifest::validate(&definition, &selected)?;
+    manifest::validate(&definition, Some(&selected))?;
     let (_, active_guidelines) =
-        workspace::snapshot(&info.spec, &definition, &selected, true, &|_| {})?;
+        workspace::snapshot(&info.spec, &definition, Some(&selected), true, &|_| {})?;
     let mut proposed = info.clone();
     proposed.manifest = definition.clone();
-    proposed.lock = selected.clone();
+    proposed.lock = Some(selected.clone());
+    proposed.guidelines = workspace::guidelines_state(&active_guidelines, GuidelinesMode::Pinned)?;
     proposed.active_guidelines = active_guidelines;
     crate::skills::active(&proposed).context("Requested guidelines contain invalid or conflicting skills. The definition was not changed")?;
     let changes = git::run(
         &info.editable_guidelines,
-        ["diff", "--stat", &info.lock.commit, &selected.commit, "--"],
+        [
+            "diff",
+            "--stat",
+            &info.guidelines.commit,
+            &selected.commit,
+            "--",
+        ],
     )?;
-    if !preview
-        && (selected.commit != info.lock.commit || selected.reference != info.lock.reference)
-    {
-        let journal = Journal {
-            old_manifest: fs::read_to_string(info.spec.join("project.json"))?,
-            old_lock: fs::read_to_string(info.spec.join("guidelines.lock.json"))?,
-            new_manifest: definition,
-            new_lock: selected.clone(),
-        };
-        let journal_path =
-            workspace::local_directory(&info.spec, true)?.join("definition-update.json");
-        let original_manifest: Manifest =
-            serde_json::from_str(journal.old_manifest.trim_start_matches('\u{feff}'))?;
-        let original_lock: Lock =
-            serde_json::from_str(journal.old_lock.trim_start_matches('\u{feff}'))?;
-        if serde_json::to_value(&original_manifest)? != serde_json::to_value(&info.manifest)?
-            || serde_json::to_value(&original_lock)? != serde_json::to_value(&info.lock)?
-        {
-            bail!("The project definition changed during the update. Retry after reviewing it.");
-        }
-        write_new_json(&journal_path, &journal)?;
-        if fs::read_to_string(info.spec.join("project.json"))? != journal.old_manifest
-            || fs::read_to_string(info.spec.join("guidelines.lock.json"))? != journal.old_lock
-        {
-            fs::remove_file(&journal_path)?;
-            bail!(
-                "The project definition changed during the update. No definition files were written."
-            );
-        }
-        let result = (|| -> Result<()> {
-            files::write_json(&info.spec.join("project.json"), &journal.new_manifest)?;
-            files::write_json(&info.spec.join("guidelines.lock.json"), &journal.new_lock)?;
-            fs::remove_file(&journal_path)?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            match recover(&info.spec) {
-                Ok(_) => {
-                    return Err(error)
-                        .context("Guidelines update failed; the original definition was restored");
-                }
-                Err(recovery) => bail!(
-                    "Guidelines update failed: {error:#}. Recovery is required: {recovery:#}. Run cspec guidelines recover {}",
-                    info.spec.display()
-                ),
-            }
-        }
-    }
     if !preview {
-        let current = workspace::info(&info.spec, false, &|_| {})?;
-        crate::agents::sync(&current).context("The guidelines definition is saved, but agent synchronization failed. Preserve and reconcile the reported files, then run cspec sync")?;
+        save_definition(&info, definition, Some(selected.clone()))?;
+        refresh_agents(&info.spec)?;
     }
     Ok(UpdateResult {
-        previous: info.lock,
+        previous: info.guidelines,
         selected,
         applied: !preview,
         changes,
     })
+}
+
+pub fn unlock(start: &Path, preview: bool) -> Result<workspace::ProjectInfo> {
+    let info = workspace::info(start, true, &|_| {})?;
+    let state =
+        workspace::guidelines_state(&info.editable_guidelines, GuidelinesMode::WorkingTree)?;
+    let branch = state.branch.as_ref().context("Select a branch in the editable guidelines repository with Git before unlocking. No checkout was changed")?;
+    let mut definition = info.manifest.clone();
+    definition.guidelines.reference = branch.clone();
+    definition.guidelines.mode = Some(GuidelinesMode::WorkingTree);
+    manifest::validate(&definition, None)?;
+    workspace::validate_branch(&info.editable_guidelines, branch)?;
+    workspace::validate_profile(&info.editable_guidelines, &definition.profile)?;
+    let mut proposed = info.clone();
+    proposed.manifest = definition.clone();
+    proposed.lock = None;
+    proposed.active_guidelines = info.editable_guidelines.clone();
+    proposed.guidelines = state;
+    crate::skills::active(&proposed).context("Working-tree guidelines contain invalid or conflicting skills. The definition was not changed")?;
+    if !preview {
+        save_definition(&info, definition, None)?;
+        refresh_agents(&info.spec)?;
+    }
+    Ok(proposed)
+}
+
+fn refresh_agents(spec: &Path) -> Result<()> {
+    let current = workspace::info(spec, false, &|_| {})?;
+    crate::agents::sync(&current).context("The guidelines definition is saved, but agent synchronization failed. Preserve and reconcile the reported files, then run cspec sync")?;
+    Ok(())
+}
+
+fn read_optional_text(path: &Path) -> Result<Option<String>> {
+    if files::exists(path)? {
+        let _: serde_json::Value = files::read_json(path)?;
+        Ok(Some(fs::read_to_string(path)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn write_optional_lock(spec: &Path, lock: Option<&Lock>) -> Result<()> {
+    let path = spec.join("guidelines.lock.json");
+    match lock {
+        Some(lock) => files::write_json(&path, lock),
+        None => {
+            if files::exists(&path)? {
+                let _: Lock = files::read_json(&path)?;
+                fs::remove_file(&path)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn save_definition(
+    info: &workspace::ProjectInfo,
+    definition: Manifest,
+    lock: Option<Lock>,
+) -> Result<()> {
+    manifest::validate(&definition, lock.as_ref())?;
+    let journal = Journal {
+        old_manifest: fs::read_to_string(info.spec.join("project.json"))?,
+        old_lock: read_optional_text(&info.spec.join("guidelines.lock.json"))?,
+        new_manifest: definition,
+        new_lock: lock,
+    };
+    let original_manifest: Manifest =
+        serde_json::from_str(journal.old_manifest.trim_start_matches('\u{feff}'))?;
+    let original_lock: Option<Lock> = journal
+        .old_lock
+        .as_deref()
+        .map(|text| serde_json::from_str(text.trim_start_matches('\u{feff}')))
+        .transpose()?;
+    if serde_json::to_value(&original_manifest)? != serde_json::to_value(&info.manifest)?
+        || serde_json::to_value(&original_lock)? != serde_json::to_value(&info.lock)?
+    {
+        bail!("The project definition changed during the update. Retry after reviewing it.");
+    }
+    if serde_json::to_value(&original_manifest)? == serde_json::to_value(&journal.new_manifest)?
+        && serde_json::to_value(&original_lock)? == serde_json::to_value(&journal.new_lock)?
+    {
+        return Ok(());
+    }
+    let journal_path = workspace::local_directory(&info.spec, true)?.join("definition-update.json");
+    write_new_json(&journal_path, &journal)?;
+    if fs::read_to_string(info.spec.join("project.json"))? != journal.old_manifest
+        || read_optional_text(&info.spec.join("guidelines.lock.json"))? != journal.old_lock
+    {
+        fs::remove_file(&journal_path)?;
+        bail!(
+            "The project definition changed during the update. No definition files were written."
+        );
+    }
+    let result = (|| -> Result<()> {
+        files::write_json(&info.spec.join("project.json"), &journal.new_manifest)?;
+        write_optional_lock(&info.spec, journal.new_lock.as_ref())?;
+        fs::remove_file(&journal_path)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        match recover(&info.spec) {
+            Ok(_) => {
+                return Err(error)
+                    .context("Guidelines update failed; the original definition was restored");
+            }
+            Err(recovery) => bail!(
+                "Guidelines update failed: {error:#}. Recovery is required: {recovery:#}. Run cspec guidelines recover {}",
+                info.spec.display()
+            ),
+        }
+    }
+    Ok(())
 }
 
 pub fn recover(start: &Path) -> Result<PathBuf> {
@@ -349,37 +472,36 @@ pub fn recover(start: &Path) -> Result<PathBuf> {
         files::read_json(&journal_path).context("No readable update journal is available")?;
     let old_manifest: Manifest =
         serde_json::from_str(journal.old_manifest.trim_start_matches('\u{feff}'))?;
-    let old_lock: Lock = serde_json::from_str(journal.old_lock.trim_start_matches('\u{feff}'))?;
-    manifest::validate(&old_manifest, &old_lock)?;
-    manifest::validate(&journal.new_manifest, &journal.new_lock)?;
-    for (name, old, new) in [
-        (
-            "project.json",
-            serde_json::to_value(&old_manifest)?,
-            serde_json::to_value(&journal.new_manifest)?,
-        ),
-        (
-            "guidelines.lock.json",
-            serde_json::to_value(&old_lock)?,
-            serde_json::to_value(&journal.new_lock)?,
-        ),
-    ] {
-        let current: serde_json::Value = files::read_json(&spec.join(name))?;
-        if current != old && current != new {
-            bail!(
-                "{} was changed after the interrupted update. Preserve and reconcile those changes before recovery; nothing was overwritten.",
-                name
-            );
-        }
+    let old_lock: Option<Lock> = journal
+        .old_lock
+        .as_deref()
+        .map(|text| serde_json::from_str(text.trim_start_matches('\u{feff}')))
+        .transpose()?;
+    manifest::validate(&old_manifest, old_lock.as_ref())?;
+    manifest::validate(&journal.new_manifest, journal.new_lock.as_ref())?;
+    let current_manifest: serde_json::Value = files::read_json(&spec.join("project.json"))?;
+    let current_lock = manifest::read_lock(&spec)?;
+    if (current_manifest != serde_json::to_value(&old_manifest)?
+        && current_manifest != serde_json::to_value(&journal.new_manifest)?)
+        || (serde_json::to_value(&current_lock)? != serde_json::to_value(&old_lock)?
+            && serde_json::to_value(&current_lock)? != serde_json::to_value(&journal.new_lock)?)
+    {
+        bail!(
+            "The definition was changed after the interrupted update. Preserve and reconcile those changes before recovery; nothing was overwritten."
+        );
     }
     write_text(&spec.join("project.json"), &journal.old_manifest)?;
-    write_text(&spec.join("guidelines.lock.json"), &journal.old_lock)?;
+    if let Some(text) = &journal.old_lock {
+        write_text(&spec.join("guidelines.lock.json"), text)?;
+    } else {
+        write_optional_lock(&spec, None)?;
+    }
     fs::remove_file(journal_path)?;
     Ok(spec)
 }
 
 fn write_text(path: &Path, text: &str) -> Result<()> {
-    if !fs::symlink_metadata(path)?.file_type().is_file() {
+    if files::exists(path)? && !fs::symlink_metadata(path)?.file_type().is_file() {
         bail!("Refusing to replace a non-regular configuration file.");
     }
     let mut temporary = tempfile::NamedTempFile::new_in(path.parent().context("Missing parent")?)?;

@@ -1,6 +1,6 @@
 use crate::{
     files, git,
-    manifest::{self, Lock, Manifest},
+    manifest::{self, GuidelinesMode, Lock, Manifest},
     repository,
 };
 use anyhow::{Context, Result, bail};
@@ -24,7 +24,89 @@ pub struct ProjectInfo {
     pub editable_guidelines: PathBuf,
     pub active_guidelines: PathBuf,
     pub manifest: Manifest,
-    pub lock: Lock,
+    pub lock: Option<Lock>,
+    pub guidelines: GuidelinesState,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuidelinesState {
+    pub mode: GuidelinesMode,
+    pub commit: String,
+    pub branch: Option<String>,
+    pub dirty: bool,
+    pub upstream: Option<String>,
+    pub ahead: Option<u64>,
+    pub behind: Option<u64>,
+}
+
+pub fn guidelines_state(active: &Path, mode: GuidelinesMode) -> Result<GuidelinesState> {
+    let commit = git::run(active, ["rev-parse", "HEAD"])?;
+    let branch = git::run(active, ["symbolic-ref", "--quiet", "--short", "HEAD"]).ok();
+    let dirty = !git::run(active, ["status", "--porcelain", "--untracked-files=all"])?.is_empty();
+    let upstream = git::run(
+        active,
+        [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+    )
+    .ok();
+    let counts = upstream.as_ref().and_then(|_| {
+        git::run(
+            active,
+            ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+        )
+        .ok()
+    });
+    let counts = counts
+        .as_deref()
+        .and_then(|s| s.split_once(char::is_whitespace));
+    let (ahead, behind) = counts
+        .map(|(a, b)| (a.trim().parse().ok(), b.trim().parse().ok()))
+        .unwrap_or((None, None));
+    Ok(GuidelinesState {
+        mode,
+        commit,
+        branch,
+        dirty,
+        upstream,
+        ahead,
+        behind,
+    })
+}
+
+pub fn validate_profile(active: &Path, profile: &str) -> Result<()> {
+    files::directory(&active.join("profiles"))?;
+    let path = active.join("profiles").join(format!("{profile}.md"));
+    if !fs::symlink_metadata(&path)
+        .with_context(|| format!("Selected profile does not exist: {}", path.display()))?
+        .file_type()
+        .is_file()
+    {
+        bail!("The selected profile must be a regular file.");
+    }
+    Ok(())
+}
+
+pub fn validate_branch(directory: &Path, branch: &str) -> Result<()> {
+    git::run(
+        directory,
+        ["check-ref-format", &format!("refs/heads/{branch}")],
+    )
+    .context("Working-tree guidelines need a valid branch name")?;
+    let local = format!("refs/heads/{branch}");
+    let remote = format!("refs/remotes/origin/{branch}");
+    if git::run(directory, ["show-ref", "--verify", &local]).is_err()
+        && git::run(directory, ["show-ref", "--verify", &remote]).is_err()
+    {
+        bail!(
+            "Working-tree guidelines need an available branch, not a tag or commit: {branch}. Fetch the branch with Git or restore a valid branch definition before pinning a version with cspec guidelines update <ref>."
+        );
+    }
+    Ok(())
 }
 
 pub struct Paths {
@@ -138,12 +220,13 @@ pub fn verify_revision(directory: &Path, lock: &Lock) -> Result<()> {
 pub fn snapshot(
     spec: &Path,
     manifest: &Manifest,
-    lock: &Lock,
+    lock: Option<&Lock>,
     create: bool,
     progress: Progress<'_>,
 ) -> Result<(PathBuf, PathBuf)> {
     let layout = paths(spec, manifest, &repository::origin(spec)?)?;
-    if !files::exists(&layout.guidelines)? {
+    let new_clone = !files::exists(&layout.guidelines)?;
+    if new_clone {
         if !create {
             bail!(
                 "The editable guidelines clone is missing. Run cspec project info to prepare it."
@@ -153,6 +236,21 @@ pub fn snapshot(
         git::clone(&layout.guidelines_source, &layout.guidelines)?;
     }
     verify_repository(&layout.guidelines, &layout.guidelines_source, "guidelines")?;
+    if manifest.guidelines_mode(lock) == GuidelinesMode::WorkingTree {
+        validate_branch(&layout.guidelines, &manifest.guidelines.reference)?;
+        if new_clone {
+            git::run(
+                &layout.guidelines,
+                ["switch", &manifest.guidelines.reference],
+            )?;
+        }
+        validate_profile(&layout.guidelines, &manifest.profile)?;
+        if create {
+            local_directory(spec, true)?;
+        }
+        return Ok((layout.guidelines.clone(), layout.guidelines));
+    }
+    let lock = lock.context("Pinned guidelines require a lock")?;
     verify_revision(&layout.guidelines, lock)?;
     let cache = local_directory(spec, create)?.join("guidelines");
     if files::exists(&cache)? {
@@ -185,21 +283,12 @@ pub fn snapshot(
             "The cached guidelines differ from the lock or contain local changes. Preserve any work and remove that snapshot before retrying."
         );
     }
-    files::directory(&active.join("profiles"))?;
-    let profile = active
-        .join("profiles")
-        .join(format!("{}.md", manifest.profile));
-    let metadata = fs::symlink_metadata(&profile)
-        .with_context(|| format!("Selected profile does not exist: {}", profile.display()))?;
-    if !metadata.file_type().is_file() {
-        bail!("The selected profile must be a regular file.");
-    }
+    validate_profile(&active, &manifest.profile)?;
     Ok((layout.guidelines, active))
 }
 
 fn is_spec(path: &Path) -> Result<bool> {
-    Ok(files::exists(&path.join("project.json"))?
-        && files::exists(&path.join("guidelines.lock.json"))?)
+    Ok(files::exists(&path.join("project.json"))? && files::exists(&path.join("spec"))?)
 }
 
 pub fn find_spec(start: &Path) -> Result<PathBuf> {
@@ -264,7 +353,8 @@ pub fn info(start: &Path, create: bool, progress: Progress<'_>) -> Result<Projec
         "code",
     )?;
     let (editable_guidelines, active_guidelines) =
-        snapshot(&spec, &manifest, &lock, create, progress)?;
+        snapshot(&spec, &manifest, lock.as_ref(), create, progress)?;
+    let guidelines = guidelines_state(&active_guidelines, manifest.guidelines_mode(lock.as_ref()))?;
     Ok(ProjectInfo {
         project_root: layout.root,
         spec,
@@ -273,6 +363,7 @@ pub fn info(start: &Path, create: bool, progress: Progress<'_>) -> Result<Projec
         active_guidelines,
         manifest,
         lock,
+        guidelines,
     })
 }
 

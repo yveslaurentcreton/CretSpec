@@ -86,6 +86,7 @@ impl Fixture {
             guidelines: Guidelines {
                 repository: "../CretAI".into(),
                 reference: "v0.1.0".into(),
+                mode: None,
             },
             profile: "rust".into(),
             agents: cretspec::manifest::default_agents(),
@@ -409,8 +410,8 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
             .join(".agents/skills/release-check/SKILL.md")
             .is_file()
     );
-    assert_eq!(updated.lock.reference, "v0.2.0");
-    assert_eq!(info.lock.reference, "v0.1.0");
+    assert_eq!(updated.lock.as_ref().unwrap().reference, "v0.2.0");
+    assert_eq!(info.lock.as_ref().unwrap().reference, "v0.1.0");
 }
 
 #[test]
@@ -596,7 +597,7 @@ fn integration_selection_removes_only_owned_files_and_can_be_disabled() {
         cretspec::manifest::Agent::Codex,
         cretspec::manifest::Agent::Codex,
     ];
-    assert!(cretspec::manifest::validate(&definition, &f.lock).is_err());
+    assert!(cretspec::manifest::validate(&definition, Some(&f.lock)).is_err());
 }
 
 #[test]
@@ -1147,7 +1148,8 @@ fn initialize_from_pinned_templates_preserves_existing_files_and_can_be_cloned()
         name: "Fresh",
         code: "../Sample",
         guidelines: "../CretAI",
-        reference: "v0.2.0",
+        reference: Some("v0.2.0"),
+        pinned: true,
         profile: "rust",
     })
     .unwrap();
@@ -1164,7 +1166,8 @@ fn initialize_from_pinned_templates_preserves_existing_files_and_can_be_cloned()
             name: "Fresh",
             code: "../Sample",
             guidelines: "../CretAI",
-            reference: "v0.2.0",
+            reference: Some("v0.2.0"),
+            pinned: true,
             profile: "rust",
         })
         .is_err()
@@ -1174,7 +1177,7 @@ fn initialize_from_pinned_templates_preserves_existing_files_and_can_be_cloned()
         workspace::clone_project(&spec.to_string_lossy(), None, None, &f.destination, &|_| {})
             .unwrap();
     assert_eq!(info.manifest.name, "Fresh");
-    assert_eq!(info.lock.commit, hash);
+    assert_eq!(info.lock.as_ref().unwrap().commit, hash);
 }
 
 #[test]
@@ -1188,7 +1191,8 @@ fn initialization_validates_all_templates_before_writing() {
             name: "Fresh",
             code: "../Sample",
             guidelines: "../CretAI",
-            reference: "v0.1.0",
+            reference: Some("v0.1.0"),
+            pinned: true,
             profile: "rust",
         })
         .is_err()
@@ -1231,7 +1235,7 @@ fn guideline_preview_and_adoption_preserve_drafts_and_other_projects() {
     let applied = operations::update(&info.spec, "v0.2.0", false, false).unwrap();
     assert!(applied.applied);
     let updated = workspace::info(&info.spec, false, &|_| {}).unwrap();
-    assert_eq!(updated.lock.commit, next);
+    assert_eq!(updated.lock.as_ref().unwrap().commit, next);
     assert_eq!(updated.manifest.guidelines.reference, "v0.2.0");
     assert_eq!(
         git::run(&info.editable_guidelines, ["rev-parse", "HEAD"]).unwrap(),
@@ -1254,7 +1258,7 @@ fn interrupted_adoption_can_be_recovered_without_overwriting_unrelated_edits() {
     let old_lock = fs::read_to_string(info.spec.join("guidelines.lock.json")).unwrap();
     let mut new_manifest = info.manifest.clone();
     new_manifest.guidelines.reference = "v0.2.0".into();
-    let mut new_lock = info.lock.clone();
+    let mut new_lock = info.lock.clone().unwrap();
     new_lock.reference = "v0.2.0".into();
     let journal = info.spec.join(".local/definition-update.json");
     files::write_json(
@@ -1301,4 +1305,369 @@ fn doctor_reports_failure_without_creating_context_and_success_after_clone() {
     .unwrap();
     assert!(checks.iter().all(|c| c["ok"] == true));
     assert!(f.cli(&[]).status.success());
+}
+
+fn working_fixture() -> Fixture {
+    let mut f = Fixture::new();
+    f.manifest.guidelines.reference = "main".into();
+    // A legacy manifest without a lock defaults to the working tree too.
+    files::write_json(&f.spec.join("project.json"), &f.manifest).unwrap();
+    fs::remove_file(f.spec.join("guidelines.lock.json")).unwrap();
+    commit(&f.spec, "Use editable guidelines");
+    f
+}
+
+#[test]
+fn working_tree_clone_reads_local_rules_and_uncommitted_shared_skills() {
+    let f = working_fixture();
+    let info = f.clone();
+    assert!(info.lock.is_none());
+    assert_eq!(info.active_guidelines, info.editable_guidelines);
+    assert!(!info.spec.join(".local/guidelines").exists());
+    assert!(!info.spec.join("guidelines.lock.json").exists());
+    assert_eq!(info.guidelines.branch.as_deref(), Some("main"));
+    let rules = info.editable_guidelines.join("guidelines/principles.md");
+    fs::write(&rules, "# Locally edited rules\n").unwrap();
+    assert!(agents::instruction_sources(&info).contains(&rules));
+    let output: Value = serde_json::from_str(&ok(f.cli(&[
+        "skill",
+        "create",
+        "shared-check",
+        "--scope",
+        "shared",
+        "--description",
+        "Check a reusable workflow",
+        "--location",
+        &info.code.to_string_lossy(),
+        "--json",
+    ])))
+    .unwrap();
+    assert!(output["nextStep"].as_str().unwrap().contains("cspec sync"));
+    let source = info
+        .editable_guidelines
+        .join("skills/shared-check/SKILL.md");
+    let refreshed = workspace::info(&info.code, false, &|_| {}).unwrap();
+    assert!(refreshed.guidelines.dirty);
+    let inventory = skills::inventory(&refreshed).unwrap();
+    assert!(inventory.shared_drafts.is_empty());
+    assert!(inventory.active.iter().any(|s| s.name == "shared-check"));
+    assert!(agents::check(&refreshed).is_err());
+    ok(f.cli(&["sync", &info.code.to_string_lossy()]));
+    assert_eq!(
+        fs::read(&source).unwrap(),
+        fs::read(info.code.join(".agents/skills/shared-check/SKILL.md")).unwrap()
+    );
+    let bootstrap = fs::read_to_string(info.code.join("AGENTS.md")).unwrap();
+    assert!(bootstrap.contains("Local guideline edits are active immediately"));
+    assert!(!bootstrap.contains("Shared drafts require"));
+    let context: Value = serde_json::from_str(&ok(f.cli(&[
+        "context",
+        &info.code.to_string_lossy(),
+        "--json",
+    ])))
+    .unwrap();
+    assert_eq!(context["project"]["lock"], Value::Null);
+    assert_eq!(context["project"]["guidelines"]["mode"], "workingTree");
+    assert_eq!(context["project"]["guidelines"]["dirty"], true);
+    assert_eq!(context["integration"]["ready"], true);
+    let checks = operations::diagnose(&info.code);
+    assert!(checks.iter().all(|c| c.ok));
+    assert!(
+        checks
+            .iter()
+            .any(|c| c.detail.contains("local changes are active"))
+    );
+}
+
+#[test]
+fn working_tree_commands_never_fetch_pull_or_switch_and_manual_git_updates_skills() {
+    let f = working_fixture();
+    let info = f.clone();
+    let before = info.guidelines.commit.clone();
+    skill_source(
+        &f.guidelines.join("skills"),
+        "remote-check",
+        "Published shared workflow",
+    );
+    let remote = commit(&f.guidelines, "Publish shared skill");
+    git::run(&info.editable_guidelines, ["switch", "-c", "local-work"]).unwrap();
+    fs::write(info.editable_guidelines.join("draft.md"), "Local draft").unwrap();
+    for args in [
+        vec!["project", "info"],
+        vec!["project", "open"],
+        vec!["context"],
+        vec!["sync"],
+        vec!["project", "doctor"],
+    ] {
+        let path = info.code.to_string_lossy();
+        let mut args = args;
+        args.push(&path);
+        if args[1] == "open" {
+            args.push("--print");
+        }
+        ok(f.cli(&args));
+    }
+    assert_eq!(
+        git::run(&info.editable_guidelines, ["rev-parse", "origin/main"]).unwrap(),
+        before
+    );
+    assert_eq!(
+        git::run(&info.editable_guidelines, ["rev-parse", "HEAD"]).unwrap(),
+        before
+    );
+    assert_eq!(
+        git::run(&info.editable_guidelines, ["branch", "--show-current"]).unwrap(),
+        "local-work"
+    );
+    assert_eq!(
+        fs::read_to_string(info.editable_guidelines.join("draft.md")).unwrap(),
+        "Local draft"
+    );
+    assert!(!info.code.join(".agents/skills/remote-check").exists());
+    assert!(
+        operations::diagnose(&info.code)
+            .iter()
+            .any(|c| c.detail.contains("differs from configured"))
+    );
+    git::run(&info.editable_guidelines, ["switch", "main"]).unwrap();
+    git::run(&info.editable_guidelines, ["fetch", "origin"]).unwrap();
+    let fetched = workspace::info(&info.code, false, &|_| {}).unwrap();
+    assert_eq!(fetched.guidelines.behind, Some(1));
+    assert_eq!(fetched.guidelines.commit, before);
+    git::run(&info.editable_guidelines, ["pull", "--ff-only"]).unwrap();
+    ok(f.cli(&["sync", &info.code.to_string_lossy()]));
+    assert!(
+        info.code
+            .join(".agents/skills/remote-check/SKILL.md")
+            .is_file()
+    );
+    git::run(&info.editable_guidelines, ["checkout", "--detach", &remote]).unwrap();
+    let detached = workspace::info(&info.code, true, &|_| {}).unwrap();
+    assert!(detached.guidelines.branch.is_none());
+    assert!(
+        operations::diagnose(&info.code)
+            .iter()
+            .any(|c| c.detail.contains("detached HEAD"))
+    );
+    assert!(operations::unlock(&info.code, false).is_err());
+    assert!(detached.lock.is_none());
+}
+
+#[test]
+fn new_initialization_uses_remote_default_branch_without_a_lock() {
+    let f = Fixture::new();
+    let templates = f.guidelines.join("templates/spec/spec");
+    fs::create_dir_all(&templates).unwrap();
+    for name in [
+        "vision",
+        "scope",
+        "requirements",
+        "architecture",
+        "decisions",
+        "roadmap",
+        "acceptance",
+        "project-rules",
+    ] {
+        fs::write(templates.join(format!("{name}.md")), format!("# {name}\n")).unwrap();
+    }
+    commit(&f.guidelines, "Add templates");
+    git::run(&f.guidelines, ["branch", "-m", "trunk"]).unwrap();
+    let spec = f.source.join("Fresh-spec");
+    repo(&spec);
+    ok(f.cli(&[
+        "project",
+        "init",
+        &spec.to_string_lossy(),
+        "--name",
+        "Fresh",
+        "--code",
+        "../Sample",
+        "--guidelines",
+        "../CretAI",
+        "--profile",
+        "rust",
+    ]));
+    let (manifest, lock) = cretspec::manifest::read(&spec).unwrap();
+    assert!(lock.is_none());
+    assert_eq!(manifest.guidelines.reference, "trunk");
+    assert_eq!(
+        manifest.guidelines.mode,
+        Some(cretspec::manifest::GuidelinesMode::WorkingTree)
+    );
+    commit(&spec, "Define project");
+    let info =
+        workspace::clone_project(&spec.to_string_lossy(), None, None, &f.destination, &|_| {})
+            .unwrap();
+    assert_eq!(info.guidelines.branch.as_deref(), Some("trunk"));
+    assert_eq!(info.active_guidelines, info.editable_guidelines);
+    let other = f.source.join("Other-spec");
+    repo(&other);
+    let failure = f.cli(&[
+        "project",
+        "init",
+        &other.to_string_lossy(),
+        "--name",
+        "Other",
+        "--code",
+        "../Sample",
+        "--guidelines",
+        "../CretAI",
+        "--profile",
+        "rust",
+        "--lock",
+    ]);
+    assert!(!failure.status.success());
+    assert!(!other.join("project.json").exists());
+}
+
+#[test]
+fn working_tree_clone_selects_configured_branch_and_rejects_tags() {
+    let mut f = working_fixture();
+    git::run(&f.guidelines, ["switch", "-c", "development"]).unwrap();
+    fs::write(f.guidelines.join("profiles/rust.md"), "# Development rules").unwrap();
+    commit(&f.guidelines, "Change branch rules");
+    git::run(&f.guidelines, ["switch", "main"]).unwrap();
+    f.manifest.guidelines.reference = "development".into();
+    files::write_json(&f.spec.join("project.json"), &f.manifest).unwrap();
+    commit(&f.spec, "Select guidelines branch");
+    let info = f.clone();
+    assert_eq!(info.guidelines.branch.as_deref(), Some("development"));
+    assert_eq!(
+        fs::read_to_string(info.active_guidelines.join("profiles/rust.md")).unwrap(),
+        "# Development rules"
+    );
+    let mut invalid = info.manifest.clone();
+    invalid.guidelines.reference = "v0.1.0".into();
+    files::write_json(&info.spec.join("project.json"), &invalid).unwrap();
+    assert!(workspace::info(&info.code, true, &|_| {}).is_err());
+    assert_eq!(
+        git::run(&info.editable_guidelines, ["branch", "--show-current"]).unwrap(),
+        "development"
+    );
+}
+
+#[test]
+fn optional_pinning_and_unlock_preserve_drafts_snapshots_and_preview_definition() {
+    let f = working_fixture();
+    let info = f.clone();
+    skill_source(
+        &info.editable_guidelines.join("skills"),
+        "local-check",
+        "Uncommitted shared skill",
+    );
+    agents::sync(&info).unwrap();
+    let original = fs::read(info.spec.join("project.json")).unwrap();
+    operations::update(&info.code, "v0.1.0", true, false).unwrap();
+    assert_eq!(fs::read(info.spec.join("project.json")).unwrap(), original);
+    assert!(!info.spec.join("guidelines.lock.json").exists());
+    operations::update(&info.code, "v0.1.0", false, false).unwrap();
+    let pinned = workspace::info(&info.code, false, &|_| {}).unwrap();
+    assert_eq!(pinned.lock.as_ref().unwrap().commit, f.lock.commit);
+    assert!(
+        !pinned
+            .code
+            .join(".agents/skills/local-check/SKILL.md")
+            .exists()
+    );
+    assert!(
+        pinned
+            .editable_guidelines
+            .join("skills/local-check/SKILL.md")
+            .exists()
+    );
+    let definition = fs::read(pinned.spec.join("project.json")).unwrap();
+    let lock = fs::read(pinned.spec.join("guidelines.lock.json")).unwrap();
+    ok(f.cli(&[
+        "guidelines",
+        "unlock",
+        &info.code.to_string_lossy(),
+        "--preview",
+    ]));
+    assert_eq!(
+        fs::read(pinned.spec.join("project.json")).unwrap(),
+        definition
+    );
+    assert_eq!(
+        fs::read(pinned.spec.join("guidelines.lock.json")).unwrap(),
+        lock
+    );
+    // An explicit pin cannot silently downgrade when its lock is lost.
+    fs::remove_file(pinned.spec.join("guidelines.lock.json")).unwrap();
+    assert!(workspace::info(&pinned.code, false, &|_| {}).is_err());
+    fs::write(pinned.spec.join("guidelines.lock.json"), lock).unwrap();
+    ok(f.cli(&["guidelines", "unlock", &info.code.to_string_lossy()]));
+    let unlocked = workspace::info(&info.code, false, &|_| {}).unwrap();
+    assert!(unlocked.lock.is_none());
+    assert!(unlocked.guidelines.dirty);
+    assert_eq!(unlocked.active_guidelines, info.editable_guidelines);
+    assert!(pinned.active_guidelines.is_dir());
+    assert!(
+        info.code
+            .join(".agents/skills/local-check/SKILL.md")
+            .exists()
+    );
+    assert!(!info.spec.join(".local/definition-update.json").exists());
+}
+
+#[test]
+fn interrupted_pin_and_unlock_restore_lock_presence_and_exact_original_text() {
+    let f = working_fixture();
+    let info = f.clone();
+    for unlocking in [false, true] {
+        if unlocking {
+            operations::update(&info.code, "v0.1.0", false, false).unwrap();
+        }
+        let current = workspace::info(&info.code, false, &|_| {}).unwrap();
+        let old_manifest = fs::read_to_string(current.spec.join("project.json")).unwrap();
+        let old_lock = fs::read_to_string(current.spec.join("guidelines.lock.json")).ok();
+        let mut next_manifest = current.manifest.clone();
+        let next_lock = if unlocking {
+            next_manifest.guidelines.mode = Some(cretspec::manifest::GuidelinesMode::WorkingTree);
+            next_manifest.guidelines.reference = "main".into();
+            None
+        } else {
+            next_manifest.guidelines.mode = Some(cretspec::manifest::GuidelinesMode::Pinned);
+            next_manifest.guidelines.reference = f.lock.reference.clone();
+            Some(f.lock.clone())
+        };
+        let journal = current.spec.join(".local/definition-update.json");
+        files::write_json(&journal, &json!({"oldManifest":old_manifest,"oldLock":old_lock,"newManifest":next_manifest,"newLock":next_lock})).unwrap();
+        files::write_json(&current.spec.join("project.json"), &next_manifest).unwrap();
+        if let Some(lock) = next_lock {
+            files::write_json(&current.spec.join("guidelines.lock.json"), &lock).unwrap();
+        } else {
+            fs::remove_file(current.spec.join("guidelines.lock.json")).unwrap();
+        }
+        assert!(workspace::info(&current.code, false, &|_| {}).is_err());
+        operations::recover(&current.code).unwrap();
+        assert_eq!(
+            fs::read_to_string(current.spec.join("project.json")).unwrap(),
+            old_manifest
+        );
+        assert_eq!(
+            fs::read_to_string(current.spec.join("guidelines.lock.json")).ok(),
+            old_lock
+        );
+        assert!(!journal.exists());
+    }
+}
+
+#[test]
+fn unlocking_validates_active_skills_before_changing_definition() {
+    let f = Fixture::new();
+    let info = f.clone();
+    skill_source(
+        &info.spec.join("spec/skills"),
+        "same-name",
+        "Project workflow",
+    );
+    skill_source(
+        &info.editable_guidelines.join("skills"),
+        "same-name",
+        "Shared workflow",
+    );
+    let before = fs::read(info.spec.join("project.json")).unwrap();
+    assert!(operations::unlock(&info.code, false).is_err());
+    assert_eq!(fs::read(info.spec.join("project.json")).unwrap(), before);
+    assert!(info.spec.join("guidelines.lock.json").exists());
 }

@@ -87,7 +87,10 @@ enum ProjectCommand {
         #[arg(long)]
         guidelines: String,
         #[arg(long = "ref")]
-        reference: String,
+        reference: Option<String>,
+        /// Pin a committed guidelines version instead of using the working tree.
+        #[arg(long = "lock", requires = "reference")]
+        pinned: bool,
         #[arg(long)]
         profile: String,
     },
@@ -111,6 +114,12 @@ enum ProjectCommand {
 }
 #[derive(Subcommand)]
 enum GuidelinesCommand {
+    /// Use the editable guidelines branch directly, preserving all local changes.
+    Unlock {
+        location: Option<PathBuf>,
+        #[arg(long)]
+        preview: bool,
+    },
     /// Preview or adopt an exact guidelines version, preserving local drafts.
     Update {
         reference: String,
@@ -153,13 +162,14 @@ fn execute(cli: Cli) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&context)?);
             } else {
                 println!(
-                    "{}\nSpec: {}\nCode: {}\nShared skill source: {}\nGuidelines: {} ({})\nAgent context: {}",
+                    "{}\nSpec: {}\nCode: {}\nShared skill source: {}\nGuidelines: {:?}, {} ({})\nAgent context: {}",
                     info.manifest.name,
                     info.spec.display(),
                     info.code.display(),
                     info.editable_guidelines.join("skills").display(),
-                    info.lock.reference,
-                    &info.lock.commit[..12],
+                    info.guidelines.mode,
+                    info.manifest.guidelines.reference,
+                    &info.guidelines.commit[..12],
                     context["integration"]["detail"]
                         .as_str()
                         .unwrap_or_default()
@@ -218,7 +228,7 @@ fn execute(cli: Cli) -> Result<()> {
             } => {
                 let info = workspace::info(&location(value)?, false, &progress)?;
                 let source = skills::create(&info, &name, scope, &description)?;
-                let next = if scope == skills::Scope::Project {
+                let next = if scope == skills::Scope::Project || info.lock.is_none() {
                     "Complete SKILL.md and its resources, then run cspec sync."
                 } else {
                     "Complete the shared source, publish it through your Git workflow, then explicitly adopt that guidelines version."
@@ -248,6 +258,7 @@ fn execute(cli: Cli) -> Result<()> {
                 code,
                 guidelines,
                 reference,
+                pinned,
                 profile,
             } => {
                 let spec = operations::initialize(operations::InitOptions {
@@ -255,7 +266,8 @@ fn execute(cli: Cli) -> Result<()> {
                     name: &name,
                     code: &code,
                     guidelines: &guidelines,
-                    reference: &reference,
+                    reference: reference.as_deref(),
+                    pinned,
                     profile: &profile,
                 })?;
                 println!(
@@ -304,8 +316,8 @@ fn execute(cli: Cli) -> Result<()> {
                     info.spec.display(),
                     info.code.display(),
                     info.editable_guidelines.display(),
-                    info.lock.reference,
-                    &info.lock.commit[..12]
+                    info.manifest.guidelines.reference,
+                    &info.guidelines.commit[..12]
                 );
             }
             ProjectCommand::Attach { code, spec } => {
@@ -326,6 +338,25 @@ fn execute(cli: Cli) -> Result<()> {
             }
         },
         Commands::Guidelines { command } => match command {
+            GuidelinesCommand::Unlock {
+                location: value,
+                preview,
+            } => {
+                let info = operations::unlock(&location(value)?, preview)?;
+                println!(
+                    "{}: working-tree guidelines on {} at {}. Use Git to share or retrieve changes.",
+                    if preview {
+                        "Preview"
+                    } else {
+                        "Guidelines unlocked"
+                    },
+                    info.manifest.guidelines.reference,
+                    info.editable_guidelines.display()
+                );
+                if preview {
+                    println!("The manifest and lock were not changed.");
+                }
+            }
             GuidelinesCommand::Update {
                 reference,
                 location: value,
@@ -334,13 +365,13 @@ fn execute(cli: Cli) -> Result<()> {
             } => {
                 let result = operations::update(&location(value)?, &reference, preview, fetch)?;
                 println!(
-                    "{}: {} ({}) -> {} ({})",
+                    "{}: {:?} ({}) -> pinned {} ({})",
                     if preview {
                         "Preview"
                     } else {
                         "Guidelines selected"
                     },
-                    result.previous.reference,
+                    result.previous.mode,
                     &result.previous.commit[..12],
                     result.selected.reference,
                     &result.selected.commit[..12]
