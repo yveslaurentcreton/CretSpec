@@ -336,7 +336,10 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
     ]));
     let created: Value = serde_json::from_str(&output).unwrap();
     let source = PathBuf::from(created["source"].as_str().unwrap());
-    assert_eq!(source, info.spec.join("spec/skills/query-validation"));
+    assert_eq!(
+        fs::canonicalize(&source).unwrap(),
+        fs::canonicalize(info.spec.join("spec/skills/query-validation")).unwrap()
+    );
     fs::create_dir(source.join("references")).unwrap();
     fs::write(
         source.join("references/example.json"),
