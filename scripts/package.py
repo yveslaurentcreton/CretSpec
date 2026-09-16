@@ -62,18 +62,41 @@ def pack(target, binary, output):
         raise ValueError(f"Binary version mismatch: {reported}")
     contents = {"cspec.exe" if "windows" in target else "cspec": binary.read_bytes()}
     contents.update({name: (ROOT / name).read_bytes() for name in ("LICENSE", "README.md")})
+    contents["THIRD-PARTY.txt"] = dependency_notices(target)
+    toolchain = Path(subprocess.check_output(["rustc", "--print", "sysroot"], cwd=ROOT, text=True).strip())
+    contents["RUST-LICENSES.html"] = (toolchain / "share/doc/rust/COPYRIGHT-library.html").read_bytes()
     output.mkdir(parents=True, exist_ok=True)
     destination = output / archive_name(release, target)
     destination.write_bytes(archive_bytes(target, contents))
     print(destination)
 
 
+def dependency_notices(target):
+    data = json.loads(subprocess.check_output([
+        "cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target,
+    ], cwd=ROOT, text=True))
+    selected = {node["id"] for node in data["resolve"]["nodes"]}
+    sections = ["CretSpec third-party dependency notices\n\nIncludes build dependencies for completeness.\n"]
+    for crate in sorted(data["packages"], key=lambda item: (item["name"], item["version"])):
+        if crate["id"] not in selected or not crate["source"]:
+            continue
+        root = Path(crate["manifest_path"]).parent
+        notices = sorted(path for path in root.iterdir() if path.is_file() and path.name.upper().startswith(
+            ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")))
+        if not notices:
+            raise ValueError(f"Review missing license texts for {crate['name']}")
+        sections.append(f"\n{'=' * 72}\n{crate['name']} {crate['version']}\nLicense: {crate['license']}\n")
+        for notice in notices:
+            sections.append(f"\n--- {notice.name} ---\n{notice.read_text(encoding='utf-8')}\n")
+    return "".join(sections).encode("utf-8")
+
+
 def inspect_archive(path, target):
     binary = "cspec.exe" if "windows" in target else "cspec"
-    expected = {binary, "LICENSE", "README.md"}
+    expected = {binary, "LICENSE", "README.md", "THIRD-PARTY.txt", "RUST-LICENSES.html"}
     if "windows" in target:
         with zipfile.ZipFile(path) as archive:
-            if set(archive.namelist()) != expected or len(archive.infolist()) != 3:
+            if set(archive.namelist()) != expected or len(archive.infolist()) != len(expected):
                 raise ValueError(f"Unexpected archive contents: {path}")
             if not archive.read(binary):
                 raise ValueError("Empty executable")
@@ -82,7 +105,7 @@ def inspect_archive(path, target):
     else:
         with tarfile.open(path, "r:gz") as archive:
             members = archive.getmembers()
-            if {m.name for m in members} != expected or len(members) != 3:
+            if {m.name for m in members} != expected or len(members) != len(expected):
                 raise ValueError(f"Unexpected archive contents: {path}")
             if not all(m.isfile() for m in members):
                 raise ValueError("Archive must contain only regular files")
@@ -123,7 +146,7 @@ def metadata(artifacts, output, release=None):
 
   def install
     bin.install "cspec"
-    pkgshare.install "LICENSE", "README.md"
+    pkgshare.install "LICENSE", "README.md", "THIRD-PARTY.txt", "RUST-LICENSES.html"
   end
 
   test do
@@ -137,7 +160,7 @@ end
     common = {"PackageIdentifier": identifier, "PackageVersion": release, "ManifestVersion": "1.9.0"}
     documents = {
         "": dict(common, DefaultLocale="en-US", ManifestType="version"),
-        ".locale.en-US": dict(common, PackageLocale="en-US", Publisher="Yves Laurent Creton",
+        ".locale.en-US": dict(common, PackageLocale="en-US", Publisher="Yves-Laurent Creton",
             PackageName="CretSpec", License="MIT", LicenseUrl=f"{REPOSITORY}/blob/v{release}/LICENSE",
             ShortDescription="Prepare a complete development project from its specification",
             PackageUrl=REPOSITORY, Moniker="cspec", ManifestType="defaultLocale"),
@@ -161,7 +184,7 @@ arch=('x86_64')
 url='{REPOSITORY}'
 license=('MIT')
 depends=('git' 'glibc' 'gcc-libs')
-provides=('cretspec')
+provides=('cretspec={release}')
 conflicts=('cretspec')
 options=('!strip')
 source=("{source}")
@@ -171,6 +194,8 @@ package() {{
   install -Dm755 cspec "$pkgdir/usr/bin/cspec"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 THIRD-PARTY.txt "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY.txt"
+  install -Dm644 RUST-LICENSES.html "$pkgdir/usr/share/licenses/$pkgname/RUST-LICENSES.html"
 }}
 ''')
     write(output / "aur/.SRCINFO", f'''pkgbase = cretspec-bin
@@ -183,7 +208,7 @@ package() {{
 \tdepends = git
 \tdepends = glibc
 \tdepends = gcc-libs
-\tprovides = cretspec
+\tprovides = cretspec={release}
 \tconflicts = cretspec
 \toptions = !strip
 \tsource = {source}
