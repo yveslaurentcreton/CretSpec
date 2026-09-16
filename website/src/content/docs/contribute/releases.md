@@ -24,7 +24,7 @@ GitHub does not automatically run ordinary PR workflows for a PR created with th
 
 ## Native artifacts
 
-Verification tests and builds Windows x64, Linux x64, macOS Intel and macOS Apple silicon. Each platform archives its executable, README and MIT license. Packaging validates the complete matrix and generates `SHA256SUMS`, a Homebrew formula, WinGet manifests, and AUR `PKGBUILD` / `.SRCINFO` from those exact bytes.
+Verification tests and builds Windows x64, Linux x64, macOS Intel and macOS Apple silicon. Each archive contains its executable, README, MIT license, dependency notices and Rust standard-library licenses. Packaging validates the complete matrix and generates `SHA256SUMS`, a Homebrew formula, WinGet manifests, and AUR `PKGBUILD` / `.SRCINFO` from those exact bytes.
 
 ```sh
 python -m unittest discover -s scripts -p 'test_*.py'

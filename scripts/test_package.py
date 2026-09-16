@@ -12,7 +12,8 @@ class Packages(unittest.TestCase):
             root = Path(temporary)
             for target in package.TARGETS:
                 contents = {"cspec.exe" if "windows" in target else "cspec": target.encode(),
-                            "LICENSE": b"MIT", "README.md": b"Readme"}
+                            "LICENSE": b"MIT", "README.md": b"Readme",
+                            "THIRD-PARTY.txt": b"Notices", "RUST-LICENSES.html": b"Rust notices"}
                 data = package.archive_bytes(target, contents)
                 self.assertEqual(data, package.archive_bytes(target, contents))
                 (root / package.archive_name("0.4.0", target)).write_bytes(data)

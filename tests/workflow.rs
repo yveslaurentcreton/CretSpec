@@ -247,7 +247,10 @@ fn editor_regeneration_preserves_settings_and_follows_the_spec() {
     assert_eq!(editor["settings"]["editor.tabSize"], 2);
     assert_eq!(editor["folders"][0]["path"], "../../RenamedSample");
     fs::remove_file(&file).unwrap();
-    assert_eq!(workspace::editor_workspace(&info.spec).unwrap(), file);
+    assert_eq!(
+        fs::canonicalize(workspace::editor_workspace(&info.spec).unwrap()).unwrap(),
+        fs::canonicalize(file).unwrap()
+    );
 }
 
 #[test]
@@ -269,7 +272,10 @@ fn project_can_move_without_a_registry_or_original_guidelines_source() {
         &current.spec,
         &current.editable_guidelines,
     ] {
-        assert_eq!(workspace::find_spec(start).unwrap(), current.spec);
+        assert_eq!(
+            fs::canonicalize(workspace::find_spec(start).unwrap()).unwrap(),
+            fs::canonicalize(&current.spec).unwrap()
+        );
     }
 }
 
