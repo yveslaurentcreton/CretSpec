@@ -19,6 +19,16 @@ const STATE: &str = "agents-state.json";
 const PENDING: &str = "agents-pending.json";
 const STATE_LIMIT: u64 = 16 * 1024 * 1024;
 
+struct SyncLock(fs::File);
+
+impl Drop for SyncLock {
+    fn drop(&mut self) {
+        // A concurrently forked process can briefly retain a duplicate descriptor.
+        // Unlock explicitly instead of waiting for every duplicate to close.
+        let _ = self.0.unlock();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stamp {
@@ -511,6 +521,7 @@ pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
         .open(lock_path)?;
     lock.try_lock()
         .context("Another agent synchronization is running. Retry after it finishes")?;
+    let _lock = SyncLock(lock);
     let owned = ownership(info)?;
     let next = desired(info, &owned)?;
     preflight(info, &owned, &next)?;
@@ -619,4 +630,30 @@ pub fn context(info: &ProjectInfo) -> Result<Value> {
         "skillSources":{"project":info.spec.join("spec/skills"), "shared":info.editable_guidelines.join("skills"), "activeShared":info.active_guidelines.join("skills")},
         "skills":skills::inventory(info)?, "integration":status, "compatibilityNotice":compatibility_notice(info),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_lock_releases_with_a_duplicate_handle_still_open() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let lock = file.reopen().unwrap();
+        lock.try_lock().unwrap();
+        let duplicate = lock.try_clone().unwrap();
+        let contender = file.reopen().unwrap();
+        let operation = || -> Result<()> {
+            let _lock = SyncLock(lock);
+            assert!(matches!(
+                contender.try_lock(),
+                Err(fs::TryLockError::WouldBlock)
+            ));
+            bail!("Simulated synchronization failure")
+        };
+        assert!(operation().is_err());
+        contender.try_lock().unwrap();
+        contender.unlock().unwrap();
+        drop(duplicate);
+    }
 }
