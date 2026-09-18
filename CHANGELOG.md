@@ -1,11 +1,10 @@
 # Changelog
 
-## [0.4.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.3.0...v0.4.0) (2026-09-18)
+## [0.4.0](https://github.com/yveslaurentcreton/CretSpec/releases/tag/v0.4.0) (2026-09-18)
 
 
 ### Features
 
-* deliver native CretSpec workspace and agent workflows ([8f9c5f2](https://github.com/yveslaurentcreton/CretSpec/commit/8f9c5f20458e332e6d7d402296f2df689e41b23b))
 * deliver native CretSpec workspace and agent workflows ([#1](https://github.com/yveslaurentcreton/CretSpec/issues/1)) ([8f9c5f2](https://github.com/yveslaurentcreton/CretSpec/commit/8f9c5f20458e332e6d7d402296f2df689e41b23b))
 * deliver native project workflows and release infrastructure ([b48a8e2](https://github.com/yveslaurentcreton/CretSpec/commit/b48a8e217c1ebc8e048947156e57d95a718754af))
 * prepare agent workspaces and scoped skills ([4565349](https://github.com/yveslaurentcreton/CretSpec/commit/456534999e11ecda0e43304bddd01a2db0d2f7e2))

@@ -4,18 +4,25 @@ description: Installation commands for Windows, macOS and Linux, with updates an
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import releases from '../../../../../.release-please-manifest.json';
+
+export const archiveUrl = (target) => `https://github.com/yveslaurentcreton/CretSpec/releases/download/v${releases['.']}/cretspec-${releases['.']}-${target}.${target.includes('windows') ? 'zip' : 'tar.gz'}`;
 
 CretSpec is a native command-line tool written in Rust. Choose your platform for installation commands.
 
 <aside className="install-status" aria-label="Publication status">
-  <p><strong>Not published yet.</strong> The commands below become usable after the first release and catalog publication. <a href="#build-from-source">Build from source</a> to install now with repository access.</p>
+  <p><strong>Native downloads are available.</strong> Choose your platform below. Homebrew, WinGet and AUR publication is pending; their commands become usable after catalog publication.</p>
 </aside>
 
 <div className="install-options">
 <Tabs syncKey="install-platform">
 <TabItem label="Windows" icon="seti:windows">
 
-**WinGet · Windows 10/11, x64**
+**Windows 10/11 · x64**
+
+<a href={archiveUrl('x86_64-pc-windows-msvc')}>Download Windows x64</a>. [Verify the archive](#release-archives), extract `cspec.exe` and place it in a directory on your user PATH. Install [Git](https://git-scm.com/install/) if needed.
+
+**WinGet · publication pending**
 
 Open PowerShell or Windows Terminal and run this after the package is published:
 
@@ -44,7 +51,11 @@ winget uninstall --exact --id YvesLaurentCreton.CretSpec
 </TabItem>
 <TabItem label="macOS" icon="apple">
 
-**Homebrew · Apple silicon and Intel**
+**macOS · Apple silicon and Intel**
+
+Download for <a href={archiveUrl('aarch64-apple-darwin')}>Apple silicon</a> or <a href={archiveUrl('x86_64-apple-darwin')}>Intel</a>, then [verify and install the archive](#release-archives). Install [Git](https://git-scm.com/install/) if needed.
+
+**Homebrew · publication pending**
 
 With [Homebrew](https://brew.sh/) installed, run this after the tap is published:
 
@@ -75,7 +86,11 @@ brew uninstall yveslaurentcreton/tap/cretspec
 </TabItem>
 <TabItem label="Linux" icon="linux">
 
-**Arch Linux · AUR · x64**
+**Linux · x64**
+
+<a href={archiveUrl('x86_64-unknown-linux-gnu')}>Download Linux x64</a> for glibc-based distributions, including Ubuntu, Debian and Arch Linux. [Verify and install the archive](#release-archives). Git, glibc 2.35 or newer and GCC runtime libraries are required.
+
+**Arch Linux · AUR · publication pending**
 
 With [Paru](https://github.com/Morganamilo/paru) installed, review the package build files and run this after the AUR package is published:
 
@@ -84,8 +99,6 @@ paru -S cretspec-bin
 ```
 
 The package installs the native executable and declares Git, glibc and GCC runtime libraries as dependencies. Paru is an AUR client.
-
-For Ubuntu, Debian and other glibc-based distributions, use a [release archive](#release-archives) after publication, or [build from source](#build-from-source) now.
 
 <details>
 <summary>Update or uninstall</summary>
@@ -122,14 +135,11 @@ Then [clone your first project](/CretSpec/start/quickstart/).
 
 ## Build from source
 
-This route works today. Install [Git](https://git-scm.com/install/) and [Rust](https://rustup.rs/), including your platform's Rust build prerequisites. Repository access is required while the preview is private.
-
-The native implementation is not yet on the default branch. The following commands select the verified native revision explicitly:
+Install [Git](https://git-scm.com/install/) and [Rust](https://rustup.rs/), including your platform's Rust build prerequisites:
 
 ```sh
 git clone https://github.com/yveslaurentcreton/CretSpec.git
 cd CretSpec
-git switch --detach 833ea622fc14ac6168fff3381a48d71b41290b2a
 cargo install --path . --locked
 cspec --version
 ```
@@ -146,7 +156,7 @@ cargo uninstall cretspec
 
 ## Release archives
 
-After the first native release, you can install manually from [GitHub Releases](https://github.com/yveslaurentcreton/CretSpec/releases). Download your platform archive and `SHA256SUMS` from the same release.
+Install manually from [GitHub Releases](https://github.com/yveslaurentcreton/CretSpec/releases/latest). Download your platform archive and `SHA256SUMS` from the same release. Prebuilt binaries need Git and the listed OS dependencies, but no Rust toolchain.
 
 | Platform | Archive target | Baseline |
 | --- | --- | --- |
