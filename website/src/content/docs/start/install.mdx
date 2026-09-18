@@ -11,7 +11,7 @@ export const archiveUrl = (target) => `https://github.com/yveslaurentcreton/Cret
 CretSpec is a native command-line tool written in Rust. Choose your platform for installation commands.
 
 <aside className="install-status" aria-label="Publication status">
-  <p><strong>Native downloads are available.</strong> Choose your platform below. Homebrew, WinGet and AUR publication is pending; their commands become usable after catalog publication.</p>
+  <p><strong>Native downloads and Homebrew are available.</strong> WinGet is awaiting catalog review; AUR publication is pending.</p>
 </aside>
 
 <div className="install-options">
@@ -22,13 +22,15 @@ CretSpec is a native command-line tool written in Rust. Choose your platform for
 
 <a href={archiveUrl('x86_64-pc-windows-msvc')}>Download Windows x64</a>. [Verify the archive](#release-archives), extract `cspec.exe` and place it in a directory on your user PATH. Install [Git](https://git-scm.com/install/) if needed.
 
-**WinGet · publication pending**
+**WinGet · awaiting catalog review**
 
 Open PowerShell or Windows Terminal and run this after the package is published:
 
 ```powershell
 winget install --exact --id YvesLaurentCreton.CretSpec --source winget
 ```
+
+Follow the [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/437414) for availability. Use the native download while catalog review is pending.
 
 [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/) registers the `cspec` command and the package declares Git as a dependency. Open a new terminal if the command is not found. No Rust toolchain is needed.
 
@@ -55,12 +57,11 @@ winget uninstall --exact --id YvesLaurentCreton.CretSpec
 
 Download for <a href={archiveUrl('aarch64-apple-darwin')}>Apple silicon</a> or <a href={archiveUrl('x86_64-apple-darwin')}>Intel</a>, then [verify and install the archive](#release-archives). Install [Git](https://git-scm.com/install/) if needed.
 
-**Homebrew · publication pending**
+**Homebrew**
 
-With [Homebrew](https://brew.sh/) installed, run this after the tap is published:
+With [Homebrew](https://brew.sh/) installed, run:
 
 ```sh
-brew tap yveslaurentcreton/tap
 brew install yveslaurentcreton/tap/cretspec
 ```
 
