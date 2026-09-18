@@ -1,5 +1,7 @@
 # Contributing
 
+Bug reports, documentation improvements and focused fixes are welcome. Open an issue before starting a larger feature or changing the project protocol. The project maintainer decides scope, merges and releases. Support and reviews are best effort; no response time is guaranteed.
+
 Install Git and Rust, then clone this repository. The toolchain is pinned; no private specification or guidelines repository is required.
 
 ```sh

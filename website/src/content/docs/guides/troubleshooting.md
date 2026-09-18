@@ -7,7 +7,7 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 
 | Problem | Next step |
 | --- | --- |
-| `cspec` not found or wrong version | Check your PATH and [installation conflicts](/CretSpec/start/install/#replace-the-earlier-nodejs-installation). |
+| `cspec` not found or wrong version | Check your PATH and follow the [installation checks](/CretSpec/start/install/#check-your-installation). |
 | Git cannot be started | Install Git, open a new terminal and check `git --version`. |
 | Clone authentication fails | Run `git ls-remote` with the same source and fix Git's credentials. |
 | No namespace configured | Set `cspec config namespace <owner>` or use a full source URL. |

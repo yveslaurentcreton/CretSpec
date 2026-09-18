@@ -1,0 +1,176 @@
+---
+title: Install CretSpec
+description: Installation commands for Windows, macOS and Linux, with updates and removal.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+CretSpec is a native command-line tool written in Rust. Choose your platform for installation commands.
+
+<aside className="install-status" aria-label="Publication status">
+  <p><strong>Not published yet.</strong> The commands below become usable after the first release and catalog publication. <a href="#build-from-source">Build from source</a> to install now with repository access.</p>
+</aside>
+
+<div className="install-options">
+<Tabs syncKey="install-platform">
+<TabItem label="Windows" icon="seti:windows">
+
+**WinGet · Windows 10/11, x64**
+
+Open PowerShell or Windows Terminal and run this after the package is published:
+
+```powershell
+winget install --exact --id YvesLaurentCreton.CretSpec --source winget
+```
+
+[WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/) registers the `cspec` command and the package declares Git as a dependency. Open a new terminal if the command is not found. No Rust toolchain is needed.
+
+<details>
+<summary>Update or uninstall</summary>
+
+Update:
+
+```powershell
+winget upgrade --exact --id YvesLaurentCreton.CretSpec --source winget
+```
+
+Uninstall:
+
+```powershell
+winget uninstall --exact --id YvesLaurentCreton.CretSpec
+```
+
+</details>
+</TabItem>
+<TabItem label="macOS" icon="apple">
+
+**Homebrew · Apple silicon and Intel**
+
+With [Homebrew](https://brew.sh/) installed, run this after the tap is published:
+
+```sh
+brew tap yveslaurentcreton/tap
+brew install yveslaurentcreton/tap/cretspec
+```
+
+Homebrew selects the native binary for your Mac and installs Git as a dependency. Review any prompt to trust the tap. No Rust toolchain is needed.
+
+<details>
+<summary>Update or uninstall</summary>
+
+Update:
+
+```sh
+brew update
+brew upgrade yveslaurentcreton/tap/cretspec
+```
+
+Uninstall:
+
+```sh
+brew uninstall yveslaurentcreton/tap/cretspec
+```
+
+</details>
+</TabItem>
+<TabItem label="Linux" icon="linux">
+
+**Arch Linux · AUR · x64**
+
+With [Paru](https://github.com/Morganamilo/paru) installed, review the package build files and run this after the AUR package is published:
+
+```sh
+paru -S cretspec-bin
+```
+
+The package installs the native executable and declares Git, glibc and GCC runtime libraries as dependencies. Paru is an AUR client.
+
+For Ubuntu, Debian and other glibc-based distributions, use a [release archive](#release-archives) after publication, or [build from source](#build-from-source) now.
+
+<details>
+<summary>Update or uninstall</summary>
+
+Update CretSpec together with your system and other AUR packages:
+
+```sh
+paru -Syu
+```
+
+Uninstall:
+
+```sh
+paru -R cretspec-bin
+```
+
+</details>
+</TabItem>
+</Tabs>
+</div>
+
+## Check your installation
+
+Open a new terminal and check that both commands are available:
+
+```sh
+cspec --version
+git --version
+```
+
+If `cspec` is missing or reports an unexpected version, check your PATH. Use `Get-Command cspec -All` in PowerShell or `type -a cspec` on macOS/Linux to find conflicting installations.
+
+Then [clone your first project](/CretSpec/start/quickstart/).
+
+## Build from source
+
+This route works today. Install [Git](https://git-scm.com/install/) and [Rust](https://rustup.rs/), including your platform's Rust build prerequisites. Repository access is required while the preview is private.
+
+The native implementation is not yet on the default branch. The following commands select the verified native revision explicitly:
+
+```sh
+git clone https://github.com/yveslaurentcreton/CretSpec.git
+cd CretSpec
+git switch --detach 833ea622fc14ac6168fff3381a48d71b41290b2a
+cargo install --path . --locked
+cspec --version
+```
+
+These commands also work in PowerShell. The checkout pins Rust 1.97.1 in `rust-toolchain.toml`. If you already have a native source checkout, run `cargo install --path . --locked` there.
+
+Cargo installs `cspec` into its binary directory: normally `~/.cargo/bin` on macOS/Linux or `%USERPROFILE%\.cargo\bin` on Windows. Add it to your PATH if necessary and reopen your terminal.
+
+To update a Cargo installation, select the source revision you want and run the same install command again. To remove it:
+
+```sh
+cargo uninstall cretspec
+```
+
+## Release archives
+
+After the first native release, you can install manually from [GitHub Releases](https://github.com/yveslaurentcreton/CretSpec/releases). Download your platform archive and `SHA256SUMS` from the same release.
+
+| Platform | Archive target | Baseline |
+| --- | --- | --- |
+| Windows x64 | `x86_64-pc-windows-msvc` | Windows 10/11; built and tested on Server 2022 |
+| Linux x64 | `x86_64-unknown-linux-gnu` | glibc 2.35 or newer; Ubuntu 22.04 build |
+| macOS Intel | `x86_64-apple-darwin` | CI on macOS 15 |
+| macOS Apple silicon | `aarch64-apple-darwin` | CI on macOS 14 |
+
+Linux needs the usual glibc and GCC runtime libraries. Alpine/musl and Linux/Windows ARM builds are outside this release matrix. macOS binaries are not notarized; respect your organization's application policy.
+
+<details>
+<summary>Verify, extract and add to PATH</summary>
+
+On Windows, run `Get-FileHash <archive.zip> -Algorithm SHA256` in PowerShell and compare the complete hash with its entry in `SHA256SUMS`. Extract the archive and place `cspec.exe` in a directory on your user PATH.
+
+On Linux, use `sha256sum <archive.tar.gz>`; on macOS, use `shasum -a 256 <archive.tar.gz>`. Compare the complete hash with the matching entry in `SHA256SUMS`. After extracting the archive, open a terminal in the extracted directory and run:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+install -m 755 cspec "$HOME/.local/bin/cspec"
+```
+
+Add `~/.local/bin` to your shell PATH if needed. Open a new terminal and run `cspec --version`.
+
+To update, repeat the verified extraction with the new release. To uninstall, remove the executable you placed on PATH. Your project repositories remain independent.
+
+</details>

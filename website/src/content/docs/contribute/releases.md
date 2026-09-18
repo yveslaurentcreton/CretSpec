@@ -1,7 +1,9 @@
 ---
 title: Releases and packages
-description: Semantic versioning, native artifacts and package-channel publication.
+description: Maintainer instructions for semantic releases, native artifacts and package publication.
 ---
+
+This guide is for project maintainers preparing and publishing a release. To propose a fix or improvement, start with the [contribution guide](/CretSpec/contribute/development/#contributions).
 
 ## Release flow
 
