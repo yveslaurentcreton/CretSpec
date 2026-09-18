@@ -128,8 +128,10 @@ def metadata(artifacts, output, release=None):
     formula = f'''class Cretspec < Formula
   desc "Prepare a complete development project from its specification"
   homepage "{REPOSITORY}"
-  version "{release}"
   license "MIT"
+
+  depends_on "git"
+  depends_on :macos
 
   on_macos do
     if Hardware::CPU.arm?
@@ -140,9 +142,6 @@ def metadata(artifacts, output, release=None):
       sha256 "{hashes[TARGETS[2]]}"
     end
   end
-
-  depends_on :macos
-  depends_on "git"
 
   def install
     bin.install "cspec"
@@ -157,7 +156,7 @@ end
 '''
     write(output / "homebrew/Formula/cretspec.rb", formula)
     identifier = "YvesLaurentCreton.CretSpec"
-    common = {"PackageIdentifier": identifier, "PackageVersion": release, "ManifestVersion": "1.9.0"}
+    common = {"PackageIdentifier": identifier, "PackageVersion": release, "ManifestVersion": "1.12.0"}
     documents = {
         "": dict(common, DefaultLocale="en-US", ManifestType="version"),
         ".locale.en-US": dict(common, PackageLocale="en-US", Publisher="Yves-Laurent Creton",
@@ -173,7 +172,8 @@ end
     }
     for suffix, data in documents.items():
         # JSON is valid YAML 1.2; this keeps generation dependency-free.
-        write(output / f"winget/manifests/y/YvesLaurentCreton/CretSpec/{release}/{identifier}{suffix}.yaml", json.dumps(data, indent=2) + "\n")
+        header = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{data['ManifestType']}.1.12.0.schema.json\n"
+        write(output / f"winget/manifests/y/YvesLaurentCreton/CretSpec/{release}/{identifier}{suffix}.yaml", header + json.dumps(data, indent=2) + "\n")
     source = urls[TARGETS[1]]
     checksum = hashes[TARGETS[1]]
     write(output / "aur/PKGBUILD", f'''pkgname=cretspec-bin

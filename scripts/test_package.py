@@ -19,7 +19,7 @@ class Packages(unittest.TestCase):
                 (root / package.archive_name("0.4.0", target)).write_bytes(data)
             package.metadata(root, root / "packages", "0.4.0")
             manifest = next((root / "packages/winget").rglob("*.installer.yaml"))
-            installer = json.loads(manifest.read_text())["Installers"][0]
+            installer = json.loads(manifest.read_text().split("\n", 1)[1])["Installers"][0]
             expected = package.inspect_archive(root / package.archive_name("0.4.0", package.TARGETS[0]), package.TARGETS[0])
             self.assertEqual(installer["InstallerSha256"], expected.upper())
             self.assertEqual(len((root / "SHA256SUMS").read_text().splitlines()), 4)
