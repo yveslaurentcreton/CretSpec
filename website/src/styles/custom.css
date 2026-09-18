@@ -1,49 +1,169 @@
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/source-sans-3';
+
 :root {
-  --sl-color-accent-low: #38251b;
-  --sl-color-accent: #dd6a38;
-  --sl-color-accent-high: #f5b394;
-  --sl-color-black: #151817;
-  --sl-color-gray-6: #202422;
-  --sl-font: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --sl-color-accent-low: #42251e;
+  --sl-color-accent: #f0745b;
+  --sl-color-accent-high: #ffb49f;
+  --sl-color-white: #f2f0ed;
+  --sl-color-gray-1: #e9e5e1;
+  --sl-color-gray-2: #cdc8c2;
+  --sl-color-gray-3: #aaa29a;
+  --sl-color-gray-4: #80766c;
+  --sl-color-gray-5: #403a35;
+  --sl-color-gray-6: #282522;
+  --sl-color-gray-7: #221f1d;
+  --sl-color-black: #1b1918;
+  --sl-color-bg-nav: #201d1b;
+  --sl-color-bg-sidebar: #201d1b;
+  --sl-color-hairline-light: #403a35;
+  --sl-color-hairline: #35302b;
+  --sl-font: 'Source Sans 3 Variable', sans-serif;
+  --brand-font-heading: 'Manrope Variable', sans-serif;
+  --brand-mark: #f05032;
   --sl-font-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   --sl-content-width: 49rem;
+  --brand-paper: #27211e;
+  --brand-ink: #ffb49f;
+  --brand-terminal-bg: #211e1b;
+  --brand-terminal-line: #47403a;
 }
+
 :root[data-theme='light'] {
-  --sl-color-accent-low: #fbeadd;
-  --sl-color-accent: #a84218;
-  --sl-color-accent-high: #713315;
-  --sl-color-white: #1c2923;
-  --sl-color-gray-1: #26382e;
-  --sl-color-gray-2: #44554b;
-  --sl-color-gray-3: #617068;
-  --sl-color-gray-4: #9ca79f;
-  --sl-color-gray-5: #d8ded6;
-  --sl-color-gray-6: #eef0e9;
-  --sl-color-gray-7: #f4f5ef;
-  --sl-color-black: #fafbf6;
+  --sl-color-accent-low: #fcebe5;
+  --sl-color-accent: #b63720;
+  --sl-color-accent-high: #8f2c19;
+  --sl-color-white: #282421;
+  --sl-color-gray-1: #34302c;
+  --sl-color-gray-2: #504a45;
+  --sl-color-gray-3: #70675e;
+  --sl-color-gray-4: #a89e94;
+  --sl-color-gray-5: #d9d1c8;
+  --sl-color-gray-6: #eeebe7;
+  --sl-color-gray-7: #f6f4f1;
+  --sl-color-black: #fffefd;
+  --sl-color-bg-nav: #faf8f5;
+  --sl-color-bg-sidebar: #faf8f5;
+  --sl-color-hairline-light: #e4dfd8;
+  --sl-color-hairline: #ece7e1;
+  --brand-paper: #faf1eb;
+  --brand-ink: #b63720;
 }
-.site-title { font-weight: 750; letter-spacing: -.045em; }
-h1, h2, h3 { letter-spacing: -.035em; }
-.hero { padding-block: clamp(2.5rem, 6vw, 6rem); }
-.hero h1 { max-width: 14ch; font-size: clamp(2.7rem, 6vw, 4.8rem); line-height: 1.02; }
-.hero .tagline { max-width: 40rem; font-size: 1.15rem; line-height: 1.65; }
-.sl-link-button { border-radius: .25rem; font-weight: 600; }
-.sl-markdown-content :is(h2,h3):not(:where(.not-content *)) { margin-top: 2.4rem; }
-.terminal { background: #19251f; color: #edf1e9; border: 1px solid #35483e; border-radius: .4rem; overflow: hidden; }
-.terminal-bar { padding: .8rem 1.4rem; border-bottom: 1px solid #35483e; font: .75rem var(--sl-font-mono); letter-spacing: .1em; color: #bccbbf; }
-.terminal-body { padding: 1.5rem 1.7rem; overflow-x: auto; font: .9rem/1.8 var(--sl-font-mono); }
+
+::selection { color: var(--sl-color-white); background: var(--sl-color-accent-low); }
+:focus-visible { outline: 2px solid var(--sl-color-text-accent); outline-offset: 4px; }
+
+.site-title {
+  gap: .65rem;
+  color: var(--sl-color-white);
+  font-family: var(--brand-font-heading);
+  font-weight: 760;
+  letter-spacing: -.055em;
+}
+.site-title img { width: 2rem; height: 2rem; }
+h1, h2, h3, h4, h5, h6 { font-family: var(--brand-font-heading); letter-spacing: -.045em; font-weight: 650; }
+.sidebar-content a { border-radius: 0; }
+.sidebar-content a[aria-current='page'] {
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-text-accent);
+  box-shadow: inset 2px 0 var(--sl-color-text-accent);
+}
+.sidebar-content a:not([aria-current='page']):hover { background: var(--sl-color-gray-6); }
+.sl-markdown-content a:not(:where(.not-content *)) { text-underline-offset: .2em; }
+.sl-markdown-content :is(h2, h3):not(:where(.not-content *)) { margin-top: 2.4rem; }
+
+.hero { padding-block: clamp(2.75rem, 6vw, 5.5rem); }
+.hero h1 { max-width: 13ch; font-size: clamp(2.75rem, 6vw, 4.8rem); line-height: 1.06; }
+.hero .tagline { max-width: 36rem; font-size: 1.1rem; line-height: 1.8; }
+.sl-link-button { border-radius: .35rem; font-weight: 650; }
+.sl-link-button.primary { background: var(--sl-color-bg-accent); }
+.sl-link-button:hover { filter: brightness(.94); }
+
+.hero > .hero-html { width: 100%; max-width: 23rem; }
+.workspace-emblem {
+  width: 100%;
+  padding: 1.6rem 1.75rem 1.4rem;
+  background: var(--brand-paper);
+  border: 1px solid var(--sl-color-hairline-light);
+  border-radius: .5rem;
+  color: var(--brand-ink);
+}
+.emblem-caption, .emblem-footer { display: block; font: .65rem/1.5 var(--sl-font-mono); }
+.emblem-caption { letter-spacing: .13em; color: var(--sl-color-gray-3); }
+.emblem-repositories {
+  position: relative;
+  display: grid;
+  gap: 1.1rem;
+  margin-block: 2.25rem;
+  padding-left: 3rem;
+}
+.emblem-bracket {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1.5rem;
+  border: solid var(--sl-color-white);
+  border-width: .45rem 0 .45rem .45rem;
+  border-radius: .2rem 0 0 .2rem;
+}
+.emblem-repo { display: flex; align-items: center; gap: 1.25rem; font: .8rem var(--sl-font-mono); }
+.emblem-line { width: 3.4rem; height: 1.05rem; border-radius: .12rem; background: var(--brand-mark); }
+.emblem-repo:nth-of-type(3) .emblem-line { width: 2.6rem; margin-right: .8rem; }
+.emblem-footer { color: var(--sl-color-gray-3); }
+
+.terminal {
+  background: var(--brand-terminal-bg);
+  color: #f1ece7;
+  border: 1px solid var(--brand-terminal-line);
+  border-radius: .5rem;
+  overflow: hidden;
+}
+.terminal-bar {
+  padding: .8rem 1.4rem;
+  border-bottom: 1px solid var(--brand-terminal-line);
+  font: .7rem var(--sl-font-mono);
+  letter-spacing: .12em;
+  color: #c8b9aa;
+}
+.terminal-body { padding: 1.5rem 1.7rem; overflow-x: auto; font: .9rem/1.85 var(--sl-font-mono); }
 .terminal-body pre { margin: 0; background: none; padding: 0; font: inherit; border: 0; color: inherit; }
-.terminal-body .prompt { color: #f4aa79; }
-.terminal-body .muted { color: #becac0; }
-.workflow { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--sl-color-gray-5); border-bottom: 1px solid var(--sl-color-gray-5); margin-top: 3rem; }
+.terminal-body .prompt { color: #ffb49f; }
+.terminal-body .muted { color: #c4b6a9; }
+
+.workflow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-block: 1px solid var(--sl-color-hairline-light);
+  margin-top: 3rem;
+}
 .workflow article { padding: 1.5rem 1.5rem 1.5rem 0; }
-.workflow article + article { border-left: 1px solid var(--sl-color-gray-5); padding-left: 1.5rem; }
-.workflow .number { font: .75rem var(--sl-font-mono); color: var(--sl-color-accent); }
-.workflow h2 { font-size: 1.15rem; margin: .8rem 0 .6rem !important; }
-.workflow p { font-size: .95rem; margin: 0; }
-.footnote { font-size: .85rem; color: var(--sl-color-gray-3); }
+.workflow article + article { border-left: 1px solid var(--sl-color-hairline-light); padding-left: 1.5rem; }
+.workflow .number { font: .7rem var(--sl-font-mono); color: var(--sl-color-text-accent); letter-spacing: .07em; }
+.workflow h2 { font-size: 1.1rem; margin: .8rem 0 .6rem !important; }
+.workflow p { font-size: .9rem; margin: 0; }
+.footnote { font-size: .8rem; color: var(--sl-color-gray-3); }
+
+.install-status {
+  padding: .85rem 1rem;
+  border-inline-start: 2px solid var(--sl-color-text-accent);
+  background: var(--sl-color-gray-7);
+  font-size: .95rem;
+}
+.install-status p { margin: 0; }
+.install-options [role='tab'] { padding: .75rem 1.125rem; gap: .6rem; font-size: 1.05rem; }
+.install-options [role='tab'] svg { width: 1.2rem; height: 1.2rem; flex-shrink: 0; }
+.install-options [role='tab'][aria-selected='true'] { color: var(--sl-color-text-accent); }
+
+@media (max-width: 49.99rem) {
+  .hero { gap: 2.5rem; }
+  .hero > .hero-html { order: 2; max-width: 26rem; }
+  .hero h1 { margin-inline: auto; }
+  .workspace-emblem { padding: 1.2rem 1.5rem; }
+  .emblem-repositories { margin-block: 1.5rem; }
+}
 @media (max-width: 42rem) {
+  .install-options [role='tab'] { padding: .7rem .55rem; font-size: 1rem; }
   .workflow { grid-template-columns: 1fr; }
-  .workflow article + article { border-left: 0; border-top: 1px solid var(--sl-color-gray-5); padding-left: 0; }
+  .workflow article + article { border-left: 0; border-top: 1px solid var(--sl-color-hairline-light); padding-left: 0; }
   .terminal-body { padding: 1.1rem; font-size: .78rem; }
+  .hero h1 { font-size: clamp(2.65rem, 11vw, 3.5rem); }
 }

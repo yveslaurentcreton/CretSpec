@@ -8,8 +8,18 @@ export default defineConfig({
   integrations: [starlight({
     title: 'CretSpec',
     description: 'One specification. A complete development project.',
+    logo: {
+      light: './src/assets/mark-light.svg',
+      dark: './src/assets/mark-dark.svg',
+    },
+    favicon: '/favicon.svg',
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/yveslaurentcreton/CretSpec' }],
     customCss: ['./src/styles/custom.css'],
+    expressiveCode: {
+      themes: ['github-dark', 'github-light'],
+      useStarlightUiThemeColors: true,
+      styleOverrides: { borderRadius: '0.5rem' },
+    },
     sidebar: [
       { label: 'Start here', items: [
         { label: 'Install', slug: 'start/install' },
@@ -32,7 +42,7 @@ export default defineConfig({
       ] },
       { label: 'Contribute', items: [
         { label: 'Development', slug: 'contribute/development' },
-        { label: 'Releases and packages', slug: 'contribute/releases' },
+        { label: 'For maintainers', slug: 'contribute/releases' },
       ] },
     ],
   })],

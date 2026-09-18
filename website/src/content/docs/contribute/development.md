@@ -50,6 +50,8 @@ The site uses Astro/Starlight, static output and local search. Its build depende
 
 ## Contributions
 
+Bug reports, documentation improvements and focused fixes are welcome. Open an issue before starting a larger feature or changing the project protocol so the proposed direction can be discussed first. The project maintainer makes the final decisions on scope, merges and releases. Support and reviews are best effort; no response time is guaranteed.
+
 Keep a change focused on an observable outcome. Describe the problem and relevant validation in the pull request. Write repository content in English. Keep manifest schemas, runtime checks and documentation aligned when changing the protocol.
 
 Use Conventional Commit titles, for example `fix: preserve editor settings` or `feat: initialize a specification`. Use `!` or a `BREAKING CHANGE:` footer when existing users must adapt. See [release rules](/CretSpec/contribute/releases/).
