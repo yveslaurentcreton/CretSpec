@@ -54,7 +54,7 @@ python scripts/prepare-channels.py --version 0.4.0
 
 The output is `dist/channels/packages/`. This also applies metadata corrections to the initial 0.4.0 release: current WinGet schema headers and Homebrew formula ordering.
 
-Run the **Package installation** workflow with the published version to exercise WinGet validation, unattended installation, command registration, removal and reinstallation on a disposable Windows runner. An empty version selects the latest public release. Its `catalog-submission` artifact contains the tested metadata. This workflow enables local manifests only on that runner and restores the setting afterward. A first release cannot demonstrate an upgrade from an earlier native release; test that separately when the next version is available.
+The **Package installation** workflow runs after each release upload and can also be dispatched with a published version. It exercises WinGet validation, unattended installation, command registration, removal and reinstallation on a disposable Windows runner. An empty version selects the latest public release. Its `catalog-submission` artifact contains the tested metadata. This workflow enables local manifests only on that runner and restores the setting afterward. A first release cannot demonstrate an upgrade from an earlier native release; test that separately when the next version is available.
 
 | Channel | Maintainer procedure |
 | --- | --- |
