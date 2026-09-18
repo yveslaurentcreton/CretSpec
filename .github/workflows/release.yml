@@ -60,3 +60,9 @@ jobs:
       pages: write
       id-token: write
     uses: ./.github/workflows/pages.yml
+
+  packages:
+    needs: [publish, prepare]
+    uses: ./.github/workflows/channels.yml
+    with:
+      version: ${{ needs.prepare.outputs.tag }}
