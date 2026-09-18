@@ -7,7 +7,7 @@ This guide is for project maintainers preparing and publishing a release. To pro
 
 ## Release flow
 
-The release workflow validates each commit on `main` and lets Release Please create or update a release PR with Cargo versions and the changelog. Merge that PR to create the tag and GitHub release. Verified archives are uploaded in the same workflow: a release created with `GITHUB_TOKEN` does not trigger a separate release-event workflow.
+The release workflow validates each commit on `main` and lets Release Please create or update a release PR with Cargo versions and the changelog. Merge that PR to create the tag and GitHub release. Verified archives are uploaded in the same workflow: a release created with `GITHUB_TOKEN` does not trigger a separate release-event workflow. After upload, the workflow rebuilds the documentation with the released download links and deploys it when Pages is enabled.
 
 | Commit | Before 1.0 | From 1.0 |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ The release workflow validates each commit on `main` and lets Release Please cre
 | Breaking change (`!` / footer) | Minor | Major |
 | Documentation, tests, CI and maintenance only | No release | No release |
 
-The manifest starts at the existing `0.3.0` baseline. The first native feature release targets `0.4.0`. The installed version comes from Cargo metadata. Tags use `v<version>`.
+Release Please keeps the release manifest and Cargo versions aligned. The installed version comes from Cargo metadata. Tags use `v<version>`. The installation page derives native download URLs from the release manifest, so review its version together with the release artifacts.
 
 ## Repository setup
 
