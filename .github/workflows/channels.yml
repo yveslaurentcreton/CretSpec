@@ -56,8 +56,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Install-PackageProvider -Name NuGet -Force | Out-Null
           Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery
-          Repair-WinGetPackageManager -AllUsers
-          Get-Help Repair-WinGetPackageManager
+          Repair-WinGetPackageManager -AllUsers -Latest
           winget --version
       - run: ./scripts/test-winget.ps1 -Directory packages/winget
         shell: pwsh

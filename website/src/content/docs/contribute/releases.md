@@ -44,12 +44,22 @@ For manual recovery, check out the release tag, download the original `release-b
 
 ## Publish package channels
 
-Generated metadata is attached as `cretspec-<version>-packages.zip`. Publication to other repositories is a maintainer action; GitHub releases alone do not make a package installable through their catalogs.
+Generated metadata is attached as `cretspec-<version>-packages.zip`. GitHub releases alone do not make a package installable through external catalogs.
+
+To prepare a submission from an existing public release, use the current packaging scripts. This downloads the immutable archives, checks their published SHA-256 hashes and generates the current catalog metadata without replacing any release asset:
+
+```sh
+python scripts/prepare-channels.py --version 0.4.0
+```
+
+The output is `dist/channels/packages/`. This also applies metadata corrections to the initial 0.4.0 release: current WinGet schema headers and Homebrew formula ordering.
+
+Run the **Package installation** workflow with the published version to exercise WinGet validation, unattended installation, command registration, removal and reinstallation on a disposable Windows runner. An empty version selects the latest public release. Its `catalog-submission` artifact contains the tested metadata. This workflow enables local manifests only on that runner and restores the setting afterward. A first release cannot demonstrate an upgrade from an earlier native release; test that separately when the next version is available.
 
 | Channel | Maintainer procedure |
 | --- | --- |
-| Homebrew | Maintain public `yveslaurentcreton/homebrew-tap`; copy `Formula/cretspec.rb`, run `brew audit --strict` and install/test against the public release. Commit after verification. |
-| WinGet | Run `winget validate --manifest <version-directory>`, perform an installation trial, then submit the generated directory to `microsoft/winget-pkgs`. Catalog review determines availability. |
+| Homebrew | The public [tap](https://github.com/yveslaurentcreton/homebrew-tap) checks releases daily. Its **Packages** workflow verifies downloads, audits and tests the candidate on Intel and Apple silicon macOS, then commits a successful update. Dispatch it manually to update sooner. Failed tests leave the previous formula active. |
+| WinGet | Run `winget validate --manifest <version-directory>` and the installation workflow, then submit the three generated manifests for one version to `microsoft/winget-pkgs` from your fork. Keep the PR limited to that version. Catalog review determines availability. Future versions use the same procedure; automatic cross-repository submission is not configured. |
 | AUR | Use the maintainer's AUR account and SSH key. Validate/build on Arch Linux, compare `makepkg --printsrcinfo` with `.SRCINFO`, install and test `cspec`. Commit and push to `cretspec-bin` after verifying ownership and the public download. |
 
 Before first submission, confirm names are available and downloads work anonymously. Never add registry credentials to product files. Update the installation page when a channel is actually usable.
