@@ -1,20 +1,18 @@
-# Contributing to CretSpec
+# Contributing
 
-Use Git and Node.js 22 or later. There are no additional runtime dependencies.
+Bug reports, documentation improvements and focused fixes are welcome. Open an issue before starting a larger feature or changing the project protocol. The project maintainer decides scope, merges and releases. Support and reviews are best effort; no response time is guaranteed.
+
+Install Git and Rust, then clone this repository. The toolchain is pinned; no private specification or guidelines repository is required.
 
 ```sh
-npm run check
-npm test
+cargo run -- --help
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 ```
 
-Tests use temporary local Git repositories. CI covers Windows, Linux and macOS with Node.js 22 and 24. Tests must not use personal configuration: set a temporary CRETSPEC_HOME.
+Describe the user-visible problem, focused change and relevant verification in your pull request. Keep repository content in English. Use Conventional Commit titles such as `fix: preserve editor settings` or `feat: initialize a specification`; mark breaking changes explicitly.
 
-Write documentation, comments, examples and CLI messages in English.
+Documentation lives in `website/`. With Node.js 24, run `npm ci`, `npm run dev` and `npm run build` there. Check examples, navigation, keyboard access and narrow layouts.
 
-For development, run `node bin/cspec.mjs` or use `npm link`. A packaged installation must work without its own Git checkout. CretSpec's own source may use the same project layout as any other product; other projects do not need a copy of it. Resolve editable guidelines from the project's spec and its local sibling repositories, never from the tool installation or a globally selected working copy.
-
-Keep the spec as the only source of project configuration. Generated editor files and caches belong inside the spec's ignored `.local/` directory and must be rebuildable from the current manifest and lock.
-
-Pass Git commands as argument arrays without shell interpolation. Do not overwrite existing clone destinations or execute scripts from a project spec. Failures may leave partial new files, but must preserve existing source content.
-
-Changes to manifest fields require matching validation, schemas and documentation. Add tests for meaningful user scenarios when changing behavior.
+The [development guide](website/src/content/docs/contribute/development.md) explains the code structure. The [release guide](website/src/content/docs/contribute/releases.md) covers semantic releases, native artifacts and package channels.

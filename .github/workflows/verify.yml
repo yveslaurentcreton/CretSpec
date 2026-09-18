@@ -1,0 +1,98 @@
+name: Verify
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native / ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            binary: cspec.exe
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            binary: cspec
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: cspec
+          - os: macos-14
+            target: aarch64-apple-darwin
+            binary: cspec
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: python scripts/package.py pack --target ${{ matrix.target }} --binary target/${{ matrix.target }}/release/${{ matrix.binary }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/cretspec-*
+          if-no-files-found: error
+
+  documentation:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+        working-directory: website
+      - run: npm run build
+        working-directory: website
+      - run: python scripts/check_docs.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: documentation
+          path: website/dist
+
+  packages:
+    needs: native
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s scripts -p 'test_*.py'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+      - run: python scripts/package.py metadata
+      - run: sha256sum --check SHA256SUMS
+        working-directory: dist
+      - run: ruby -c dist/packages/homebrew/Formula/cretspec.rb
+      - run: bash -n dist/packages/aur/PKGBUILD
+      - run: ./scripts/validate-winget.ps1 -Directory dist/packages/winget
+        shell: pwsh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-bundle
+          path: dist
+          include-hidden-files: true
