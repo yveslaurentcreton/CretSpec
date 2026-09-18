@@ -128,8 +128,10 @@ def metadata(artifacts, output, release=None):
     formula = f'''class Cretspec < Formula
   desc "Prepare a complete development project from its specification"
   homepage "{REPOSITORY}"
-  version "{release}"
   license "MIT"
+
+  depends_on "git"
+  depends_on :macos
 
   on_macos do
     if Hardware::CPU.arm?
@@ -140,9 +142,6 @@ def metadata(artifacts, output, release=None):
       sha256 "{hashes[TARGETS[2]]}"
     end
   end
-
-  depends_on :macos
-  depends_on "git"
 
   def install
     bin.install "cspec"
