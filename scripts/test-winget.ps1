@@ -3,7 +3,8 @@ param([Parameter(Mandatory = $true)][string]$Directory)
 # Run on a disposable Windows runner with WinGet and Git installed.
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
-$id = 'YvesLaurentCreton.CretSpec'
+if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Run this installation/removal test on a disposable GitHub Actions runner.' }
+$name = 'CretSpec'
 $manifest = Get-ChildItem -LiteralPath $Directory -Filter '*.installer.yaml' -Recurse -File
 if (@($manifest).Count -ne 1) { throw 'Expected one installer manifest.' }
 $data = (Get-Content -LiteralPath $manifest.FullName | Where-Object { $_ -notmatch '^#' }) -join "`n" | ConvertFrom-Json
@@ -18,12 +19,13 @@ try {
     if ((cspec --version) -ne "cspec $version") { throw 'Installed version mismatch.' }
     cspec --help
     git --version
-    winget list --id $id --exact --accept-source-agreements --disable-interactivity
-    winget uninstall --id $id --exact --silent --disable-interactivity
+    # A local manifest has no catalog identity until the submission is indexed.
+    winget list --name $name --exact --accept-source-agreements --disable-interactivity
+    winget uninstall --name $name --exact --silent --disable-interactivity
     if (Get-Command cspec -ErrorAction SilentlyContinue) { throw 'Command alias survived uninstall.' }
     winget install --manifest $manifest.DirectoryName --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
     if ((cspec --version) -ne "cspec $version") { throw 'Reinstalled version mismatch.' }
-    winget uninstall --id $id --exact --silent --disable-interactivity
+    winget uninstall --name $name --exact --silent --disable-interactivity
 } finally {
     winget settings --disable LocalManifestFiles
 }
