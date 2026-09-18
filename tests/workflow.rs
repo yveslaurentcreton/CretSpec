@@ -650,6 +650,7 @@ fn simultaneous_sync_and_malicious_ownership_paths_are_rejected() {
             .to_string()
             .contains("Another")
     );
+    lock.unlock().unwrap();
     drop(lock);
     agents::sync(&info).unwrap();
     let state_path = info.spec.join(".local/agents-state.json");
