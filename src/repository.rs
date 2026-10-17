@@ -112,9 +112,31 @@ pub fn resolve(reference: &str, source: &str) -> Result<String> {
     }
 }
 
+/// Removes a user name from an HTTPS URL, such as the organization prefix in Azure DevOps
+/// clone URLs. A password is rejected and never copied or displayed.
+pub fn without_user(value: &str) -> Result<String> {
+    if !value.starts_with("https://") {
+        return Ok(value.to_owned());
+    }
+    let Ok(mut url) = Url::parse(value) else {
+        return Ok(value.to_owned());
+    };
+    if url.password().is_some() {
+        bail!(
+            "A repository URL contains a password. Remove it with git remote set-url and use your Git credential manager; it was not stored or displayed."
+        );
+    }
+    if url.username().is_empty() {
+        return Ok(value.to_owned());
+    }
+    url.set_username("")
+        .map_err(|_| anyhow::anyhow!("Invalid repository URL"))?;
+    Ok(url.to_string())
+}
+
 pub fn origin(path: &Path) -> Result<String> {
     match git::run(path, ["remote", "get-url", "origin"]) {
-        Ok(value) => normalize(&value, path),
+        Ok(value) => normalize(&without_user(&value)?, path),
         Err(_) => Ok(path.to_string_lossy().into_owned()),
     }
 }
@@ -137,7 +159,7 @@ pub fn spec_source(value: &str, namespace_value: Option<&str>, cwd: &Path) -> Re
             format!("{base}/{value}")
         })
     } else {
-        normalize(value, cwd)
+        normalize(&without_user(value)?, cwd)
     }
 }
 
@@ -195,5 +217,35 @@ pub fn identity(value: &str) -> Result<String> {
         }
     };
     let remote = remote.trim_end_matches('/');
-    Ok(remote.strip_suffix(".git").unwrap_or(remote).to_owned())
+    let remote = remote.strip_suffix(".git").unwrap_or(remote);
+    Ok(azure_devops(remote).unwrap_or_else(|| remote.to_owned()))
+}
+
+/// Azure DevOps exposes one repository through several SSH and HTTPS forms.
+/// Its organization, project and repository names are case-insensitive.
+fn azure_devops(remote: &str) -> Option<String> {
+    let lower = remote.to_lowercase();
+    let parts: Vec<&str> = lower.split('/').collect();
+    let (organization, project, repository) = match parts.as_slice() {
+        [
+            "ssh.dev.azure.com" | "vs-ssh.visualstudio.com",
+            "v3",
+            organization,
+            project,
+            repository,
+        ] => (organization.to_string(), *project, *repository),
+        ["dev.azure.com", organization, project, "_git", repository] => {
+            (organization.to_string(), *project, *repository)
+        }
+        [host, "defaultcollection", project, "_git", repository]
+        | [host, project, "_git", repository] => (
+            host.strip_suffix(".visualstudio.com")?.to_owned(),
+            *project,
+            *repository,
+        ),
+        _ => return None,
+    };
+    Some(format!(
+        "dev.azure.com/{organization}/{project}/_git/{repository}"
+    ))
 }

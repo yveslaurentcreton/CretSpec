@@ -11,7 +11,7 @@ Relative references identify remote sources relative to the spec's origin. Movin
 
 ## Attach existing clones
 
-Arrange your repositories as siblings inside an ordinary directory. The code directory must match `project.json`'s `name`; the guidelines directory uses its source basename. Origins must match the sources declared in the spec.
+Arrange your repositories as siblings inside an ordinary directory. In a version 1 project, the code directory must match `project.json`'s `name`. In a version 2 project, each repository uses its declared `path`. The guidelines directory uses its source basename. Origins must match the sources declared in the spec.
 
 ```text
 Atlas/
@@ -23,10 +23,12 @@ Atlas/
 From the outer directory:
 
 ```sh
-cspec project attach Atlas Atlas-spec
+cspec project attach Atlas-spec
 ```
 
-Attach validates placement and origins and prepares missing guideline context. It does not relocate your repositories, rewrite remotes or discard local changes. A missing editable guidelines clone can be prepared from its declared source.
+Attach validates placement and origins of every declared repository before writing anything, then prepares missing guideline context. It does not relocate your repositories, switch branches, rewrite remotes or discard local changes. Existing tracked agent instructions are preserved. A missing editable guidelines clone can be prepared from its declared source. A missing declared repository stops the command; add `--clone-missing` to clone it at its declared path. The version 1 form `cspec project attach Atlas Atlas-spec` still works.
+
+For a workspace with several repositories or a specification inside a code repository, see [combining repositories](/CretSpec/guides/workspaces/#clone-or-include-existing-clones).
 
 ## Choose a different outer directory name
 

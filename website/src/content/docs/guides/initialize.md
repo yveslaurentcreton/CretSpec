@@ -30,6 +30,19 @@ By default CretSpec uses the guidelines remote's default branch, copies its spec
 
 For a pinned project, add `--lock --ref v0.4.0` using your own published tag. This also creates `guidelines.lock.json` at the exact selected commit. `--ref` alone selects a branch; it does not enable pinning.
 
+## Several repositories
+
+To declare repositories by name ([schema version 2](/CretSpec/reference/manifest/#schema-version-2)), omit `--code` and repeat `--repository`:
+
+```sh
+cspec project init Atlas-spec --name Atlas --guidelines ../ai-guidelines \
+  --repository atlas --repository atlas-infra=git@github.com:your-account/atlas-infra.git
+```
+
+`--repository <path>` reads the origin of an existing sibling clone; `<path>=<url>` declares a repository that is not cloned yet. Each repository is named after its folder in lowercase. Edit `project.json` afterwards to add a `purpose`, a `profile` or a shorter name. Here `--profile` is optional and applies to the spec repository.
+
+When the specification already exists inside a code repository, initialize that repository with `--existing-spec`. It keeps the existing `spec/` directory unchanged and writes only `project.json`; no templates are copied. See [combining repositories](/CretSpec/guides/workspaces/).
+
 ## Define your project
 
 Edit the copied Markdown to describe your product. Use your guidelines' method for requirements, milestones, stories, decisions and evidence. Review the manifest, then commit and push from the spec repository:

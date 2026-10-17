@@ -1,15 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "CretSpec project manifest v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schemaVersion", "name", "code", "guidelines", "profile"],
-  "properties": {
-    "schemaVersion": { "const": 1 },
+  "title": "CretSpec project manifest",
+  "description": "Schema version 1 names one code repository. Schema version 2 names any number of repositories; the spec repository may also contain product code.",
+  "oneOf": [{ "$ref": "#/$defs/version1" }, { "$ref": "#/$defs/version2" }],
+  "$defs": {
     "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" },
-    "code": {
-      "type": "object", "additionalProperties": false, "required": ["repository"],
-      "properties": { "repository": { "type": "string", "minLength": 1 } }
+    "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
+    "repositoryName": {
+      "type": "string", "maxLength": 64,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Lowercase letters, digits and single hyphens. Roles refer to repositories by this name."
+    },
+    "purpose": {
+      "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+      "description": "One line describing the repository's function in the workspace."
     },
     "guidelines": {
       "type": "object", "additionalProperties": false, "required": ["repository", "ref"],
@@ -19,12 +23,61 @@
         "mode": { "enum": ["workingTree", "pinned"], "description": "Omit to infer pinned when a lock exists, workingTree otherwise. Explicit modes require matching lock presence." }
       }
     },
-    "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
     "agents": {
       "type": "array", "uniqueItems": true,
       "items": { "enum": ["codex", "claude", "copilot", "cursor"] },
       "default": ["codex", "claude", "copilot", "cursor"],
       "description": "Local agent integrations. Omit for all supported integrations or use [] to disable them."
+    },
+    "version1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "name", "code", "guidelines", "profile"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "name": { "$ref": "#/$defs/name" },
+        "code": {
+          "type": "object", "additionalProperties": false, "required": ["repository"],
+          "properties": { "repository": { "type": "string", "minLength": 1 } }
+        },
+        "guidelines": { "$ref": "#/$defs/guidelines" },
+        "profile": { "$ref": "#/$defs/profile" },
+        "agents": { "$ref": "#/$defs/agents" }
+      }
+    },
+    "version2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "name", "repositories", "guidelines"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "name": { "$ref": "#/$defs/name" },
+        "specRepository": {
+          "type": "object", "additionalProperties": false,
+          "description": "Describes the repository containing project.json. It may also contain product code.",
+          "properties": {
+            "name": { "$ref": "#/$defs/repositoryName", "default": "spec" },
+            "purpose": { "$ref": "#/$defs/purpose" },
+            "profile": { "$ref": "#/$defs/profile" }
+          }
+        },
+        "repositories": {
+          "type": "array", "maxItems": 64,
+          "description": "Other repositories in the workspace. Names and paths must be distinct, and paths must not reuse the spec or guidelines directory or the reserved roles directory.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "url"],
+            "properties": {
+              "name": { "$ref": "#/$defs/repositoryName" },
+              "url": { "type": "string", "minLength": 1, "description": "HTTPS, SSH or local Git source without credentials. Relative references resolve against the spec source." },
+              "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "Directory in the project root. Defaults to name." },
+              "purpose": { "$ref": "#/$defs/purpose" },
+              "profile": { "$ref": "#/$defs/profile" }
+            }
+          }
+        },
+        "guidelines": { "$ref": "#/$defs/guidelines" },
+        "agents": { "$ref": "#/$defs/agents" }
+      }
     }
   }
 }
