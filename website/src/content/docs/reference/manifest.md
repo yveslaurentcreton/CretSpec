@@ -1,9 +1,9 @@
 ---
 title: Project and lock files
-description: Schema version 1, repository resolution and generated context.
+description: Schema versions 1 and 2, repository resolution and generated context.
 ---
 
-Commit `project.json` in the spec repository root, alongside a `spec/` directory. Commit `guidelines.lock.json` only for pinned projects. JSON must be UTF-8; a UTF-8 BOM is accepted. Configuration files are limited to 128 KiB. Unknown fields and unsupported schema versions are rejected.
+Commit `project.json` in the spec repository root, alongside a `spec/` directory. Schema version 1 names one code repository. [Schema version 2](#schema-version-2) names any number of repositories, and the spec repository may also contain the product code. Commit `guidelines.lock.json` only for pinned projects. JSON must be UTF-8; a UTF-8 BOM is accepted. Configuration files are limited to 128 KiB. Unknown fields and unsupported schema versions are rejected.
 
 ## project.json
 
@@ -34,7 +34,7 @@ Existing version 1 definitions with a lock remain pinned. An explicit `pinned` m
 
 The branch in a working-tree manifest must exist locally or in cached `origin` refs. Clone selects it in the new guidelines checkout. Later commands read the actual working tree even if you use Git to change branches or detach HEAD; context and doctor report that state. Changing the manifest's branch does not switch an existing checkout.
 
-Upgrade older executables before using `guidelines.mode` or `agents`; earlier versions reject unknown fields and may require a lock. The project definition remains solely in this repository.
+Upgrade older executables before using `guidelines.mode`, `agents` or schema version 2; earlier versions reject unknown fields and may require a lock. CretSpec 0.5.0 or later reads schema version 2. The project definition remains solely in this repository.
 
 Relative references resolve against the **spec source**, not the current terminal directory:
 
@@ -45,6 +45,40 @@ Relative references resolve against the **spec source**, not the current termina
 | Local `sources/Atlas-spec` repository | `../Atlas` | Sibling `sources/Atlas` repository |
 
 Use full HTTPS or SSH sources for other servers or owners. URLs containing credentials, query parameters or fragments are rejected. Remote Git helper syntax is unsupported. Remote specs cannot reference local absolute paths.
+
+Existing clones are compared by repository identity, not by exact text. SSH and HTTPS addresses of the same GitHub repository match. Azure DevOps addresses match across `ssh.dev.azure.com`, `dev.azure.com` and `<organization>.visualstudio.com`, ignoring case. A user name in an existing HTTPS origin, such as Azure DevOps' `https://organization@dev.azure.com/...`, is ignored for comparison. An origin containing a password is rejected without being displayed.
+
+## Schema version 2
+
+```json
+{
+  "schemaVersion": 2,
+  "name": "Atlas",
+  "specRepository": { "name": "atlas", "purpose": "Application code and specification.", "profile": "dotnet" },
+  "repositories": [
+    { "name": "infra", "url": "../atlas-infra", "purpose": "Infrastructure and GitOps." }
+  ],
+  "guidelines": { "repository": "../ai-guidelines", "ref": "main" },
+  "agents": ["codex", "claude"]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | `2`. Version 2 has no `code` or top-level `profile`. |
+| `name` | Default outer folder name for a new clone. It no longer names a code folder. |
+| `specRepository` | Optional description of the repository containing `project.json`: `name` (default `spec`), `purpose` and `profile`. Use it when that repository also contains code. |
+| `repositories` | Required list of the other repositories; `[]` when the spec repository contains everything. At most 64. |
+| `repositories[].name` | Name used in instructions and roles. 1–64 lowercase letters, digits and single hyphens; unique, including the spec repository's name. |
+| `repositories[].url` | Git source, resolved like `code.repository` in version 1. |
+| `repositories[].path` | Optional folder in the project root; defaults to `name`. One portable, non-hidden folder name. |
+| `repositories[].purpose` | Optional single line, at most 500 characters, describing the repository's function. Shown to agents. |
+| `repositories[].profile` | Optional profile that applies to this repository. |
+| `guidelines`, `agents` | Same as version 1. |
+
+Folder names of the spec, guidelines and every repository must be distinct, ignoring case. `roles` is reserved for generated [role entry points](/CretSpec/guides/workspaces/#define-roles). Two members cannot refer to the same repository. Every selected profile must exist in the active guidelines.
+
+To convert a version 1 project, set `schemaVersion` to `2`, move `code.repository` into a `repositories` entry with `path` set to the existing code folder, and move `profile` into that entry. Run `cspec sync`; generated files in the existing folder are taken over without conflicts. Older executables cannot read the converted file.
 
 ## guidelines.lock.json
 
@@ -74,11 +108,13 @@ Atlas-spec/.local/
 └── agents.lock               process lock
 ```
 
+Role sources live in the spec's `spec/roles/<name>.md`. Their generated folders are created in the outer project root under `roles/<name>/`; see [roles](/CretSpec/guides/workspaces/#define-roles).
+
 Working-tree mode still uses `.local/` for generated-file ownership and editor settings; it needs no guidelines snapshot. Unlocking preserves existing snapshots.
 
 CretSpec adds a local Git exclusion when needed. `.local/` must not contain tracked files. Snapshots and editor configuration can be regenerated after preserving local changes; an update journal must be recovered before it is removed.
 
-The outer project root has no definition, binding file or Git repository. Personal settings only expand short source names before cloning.
+The outer project root has no definition, binding file or Git repository. It can contain generated agent entry points and role folders. Personal settings only expand short source names before cloning.
 
 Agent instructions and skills are also generated in the outer root and sibling repositories. They are derived outputs, not project definitions. Preserve their ownership metadata and follow the [synchronization rules](/CretSpec/reference/skills/#generated-files) when rebuilding them.
 

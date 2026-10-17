@@ -11,6 +11,17 @@ use std::{
 };
 use tempfile::TempDir;
 
+/// Schema version 1 projects always have a code repository.
+trait Code {
+    fn code(&self) -> PathBuf;
+}
+
+impl Code for workspace::ProjectInfo {
+    fn code(&self) -> PathBuf {
+        self.code.clone().expect("schema version 1 code repository")
+    }
+}
+
 struct Fixture {
     _temp: TempDir,
     root: PathBuf,
@@ -80,15 +91,17 @@ impl Fixture {
         let manifest = Manifest {
             schema_version: 1,
             name: "Sample".into(),
-            code: Source {
+            code: Some(Source {
                 repository: "../Sample".into(),
-            },
+            }),
+            spec_repository: None,
+            repositories: None,
             guidelines: Guidelines {
                 repository: "../CretAI".into(),
                 reference: "v0.1.0".into(),
                 mode: None,
             },
-            profile: "rust".into(),
+            profile: Some("rust".into()),
             agents: cretspec::manifest::default_agents(),
         };
         let lock = Lock {
@@ -164,13 +177,13 @@ fn skill_source(root: &Path, name: &str, instructions: &str) -> PathBuf {
 fn repository_ignore_exceptions_cannot_expose_private_generated_files() {
     let f = Fixture::new();
     let info = f.clone();
-    let before = fs::read(info.code.join("AGENTS.md")).unwrap();
-    fs::write(info.code.join(".gitignore"), "!AGENTS.md\n").unwrap();
+    let before = fs::read(info.code().join("AGENTS.md")).unwrap();
+    fs::write(info.code().join(".gitignore"), "!AGENTS.md\n").unwrap();
     assert!(agents::check(&info).is_err());
     let error = agents::sync(&info).unwrap_err();
     assert!(format!("{error:#}").contains("expose generated file"));
-    assert_eq!(fs::read(info.code.join("AGENTS.md")).unwrap(), before);
-    fs::write(info.code.join(".gitignore"), "# Resolved\n").unwrap();
+    assert_eq!(fs::read(info.code().join("AGENTS.md")).unwrap(), before);
+    fs::write(info.code().join(".gitignore"), "# Resolved\n").unwrap();
     agents::sync(&info).unwrap();
     agents::check(&info).unwrap();
 }
@@ -192,7 +205,7 @@ fn ignored_snapshot_additions_are_not_exposed_as_adopted_skills() {
     );
     let error = agents::sync(&info).unwrap_err();
     assert!(format!("{error:#}").contains("outside the locked Git snapshot"));
-    assert!(!info.code.join(".agents/skills/uncommitted").exists());
+    assert!(!info.code().join(".agents/skills/uncommitted").exists());
 }
 
 #[test]
@@ -210,7 +223,7 @@ fn retry_recognizes_a_new_output_written_before_interruption() {
     pending["files"]["code/.agents/skills/recover-check/SKILL.md"] =
         json!([{"sha256":fingerprint,"executable":false}]);
     files::write_json(&info.spec.join(".local/agents-pending.json"), &pending).unwrap();
-    let output = info.code.join(".agents/skills/recover-check/SKILL.md");
+    let output = info.code().join(".agents/skills/recover-check/SKILL.md");
     fs::create_dir_all(output.parent().unwrap()).unwrap();
     fs::write(&output, bytes).unwrap();
     agents::sync(&info).unwrap();
@@ -250,8 +263,8 @@ fn windows_junction_cannot_redirect_generated_resources() {
     let info = f.clone();
     let outside = f.root.join("outside resources");
     fs::create_dir(&outside).unwrap();
-    let output = info.code.join(".agents/skills/cspec-workspace");
-    fs::rename(&output, info.code.join("preserved-skill")).unwrap();
+    let output = info.code().join(".agents/skills/cspec-workspace");
+    fs::rename(&output, info.code().join("preserved-skill")).unwrap();
     let result = git::command("cmd.exe")
         .args(["/C", "mklink", "/J"])
         .arg(&output)
@@ -273,7 +286,7 @@ fn agent_entry_points_are_discoverable_excluded_and_relocatable() {
     let info = f.clone();
     for base in [
         &info.project_root,
-        &info.code,
+        &info.code(),
         &info.spec,
         &info.editable_guidelines,
     ] {
@@ -307,7 +320,7 @@ fn agent_entry_points_are_discoverable_excluded_and_relocatable() {
     agents::check(&info).unwrap();
     for base in [
         &info.project_root,
-        &info.code,
+        &info.code(),
         &info.spec,
         &info.editable_guidelines,
     ] {
@@ -332,7 +345,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
         "--description",
         "Validate query inputs",
         "--location",
-        &info.code.to_string_lossy(),
+        &info.code().to_string_lossy(),
         "--json",
     ]));
     let created: Value = serde_json::from_str(&output).unwrap();
@@ -348,7 +361,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
     )
     .unwrap();
     assert!(agents::check(&info).is_err());
-    let synced = ok(f.cli(&["sync", &info.code.to_string_lossy(), "--json"]));
+    let synced = ok(f.cli(&["sync", &info.code().to_string_lossy(), "--json"]));
     assert!(
         serde_json::from_str::<Value>(&synced).unwrap()["written"]
             .as_u64()
@@ -357,7 +370,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
     );
     assert_eq!(
         fs::read(
-            info.code
+            info.code()
                 .join(".agents/skills/query-validation/references/example.json")
         )
         .unwrap(),
@@ -384,7 +397,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
         info.editable_guidelines.join("skills/release-check")
     );
     agents::sync(&info).unwrap();
-    assert!(!info.code.join(".agents/skills/release-check").exists());
+    assert!(!info.code().join(".agents/skills/release-check").exists());
     let inventory = skills::inventory(&info).unwrap();
     assert!(
         inventory
@@ -406,7 +419,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
     agents::check(&updated).unwrap();
     assert!(
         updated
-            .code
+            .code()
             .join(".agents/skills/release-check/SKILL.md")
             .is_file()
     );
@@ -426,7 +439,7 @@ fn synchronization_preflights_conflicts_and_preserves_unrelated_resources() {
     agents::sync(&info).unwrap();
     let first = info.project_root.join(".agents/skills/check-data/SKILL.md");
     let before = fs::read(&first).unwrap();
-    let edited = info.code.join(".claude/skills/check-data/SKILL.md");
+    let edited = info.code().join(".claude/skills/check-data/SKILL.md");
     fs::write(&edited, "User work").unwrap();
     fs::write(
         source.join("SKILL.md"),
@@ -443,7 +456,7 @@ fn synchronization_preflights_conflicts_and_preserves_unrelated_resources() {
     assert_eq!(fs::read(&edited).unwrap(), b"User work");
     fs::remove_file(&edited).unwrap();
     agents::sync(&info).unwrap();
-    let keep = info.code.join(".agents/skills/check-data/user-notes.txt");
+    let keep = info.code().join(".agents/skills/check-data/user-notes.txt");
     fs::write(&keep, "Unmanaged notes").unwrap();
     fs::remove_dir_all(&source).unwrap();
     agents::sync(&info).unwrap();
@@ -464,26 +477,29 @@ fn existing_repository_instructions_are_preserved_and_included() {
     commit(&f.code, "Add instructions");
     let info = f.clone();
     assert_eq!(
-        fs::read_to_string(info.code.join("AGENTS.md"))
+        fs::read_to_string(info.code().join("AGENTS.md"))
             .unwrap()
             .replace("\r\n", "\n"),
         "# Existing\nRun the existing checks.\n"
     );
     assert!(
-        fs::read_to_string(info.code.join("AGENTS.override.md"))
+        fs::read_to_string(info.code().join("AGENTS.override.md"))
             .unwrap()
             .contains("Run the existing checks.")
     );
+    // Claude reads the tracked CLAUDE.md itself; the local entry adds only workspace context.
+    let claude = fs::read_to_string(info.code().join("CLAUDE.local.md")).unwrap();
+    assert!(claude.starts_with("# CretSpec workspace"));
+    assert!(!claude.contains("Run the existing checks."));
     assert_eq!(
-        fs::read_to_string(info.code.join("CLAUDE.local.md")).unwrap(),
-        "@AGENTS.override.md\n"
+        git::run(&info.code(), ["status", "--porcelain"]).unwrap(),
+        ""
     );
-    assert_eq!(git::run(&info.code, ["status", "--porcelain"]).unwrap(), "");
-    fs::write(info.code.join("AGENTS.md"), "Updated tracked guidance\n").unwrap();
+    fs::write(info.code().join("AGENTS.md"), "Updated tracked guidance\n").unwrap();
     assert!(agents::check(&info).is_err());
     agents::sync(&info).unwrap();
     assert!(
-        fs::read_to_string(info.code.join("AGENTS.override.md"))
+        fs::read_to_string(info.code().join("AGENTS.override.md"))
             .unwrap()
             .contains("Updated tracked guidance")
     );
@@ -493,20 +509,20 @@ fn existing_repository_instructions_are_preserved_and_included() {
 fn tracked_generated_files_and_existing_overrides_are_not_replaced() {
     let f = Fixture::new();
     let info = f.clone();
-    git::run(&info.code, ["add", "--force", "AGENTS.md"]).unwrap();
-    let before = fs::read(info.code.join("AGENTS.md")).unwrap();
+    git::run(&info.code(), ["add", "--force", "AGENTS.md"]).unwrap();
+    let before = fs::read(info.code().join("AGENTS.md")).unwrap();
     assert!(
         agents::sync(&info)
             .unwrap_err()
             .to_string()
             .contains("tracked")
     );
-    assert_eq!(fs::read(info.code.join("AGENTS.md")).unwrap(), before);
-    git::run(&info.code, ["reset", "--", "AGENTS.md"]).unwrap();
-    fs::write(info.code.join("AGENTS.override.md"), "Owner override").unwrap();
+    assert_eq!(fs::read(info.code().join("AGENTS.md")).unwrap(), before);
+    git::run(&info.code(), ["reset", "--", "AGENTS.md"]).unwrap();
+    fs::write(info.code().join("AGENTS.override.md"), "Owner override").unwrap();
     assert!(agents::sync(&info).is_err());
     assert_eq!(
-        fs::read(info.code.join("AGENTS.override.md")).unwrap(),
+        fs::read(info.code().join("AGENTS.override.md")).unwrap(),
         b"Owner override"
     );
 }
@@ -528,7 +544,7 @@ fn invalid_and_colliding_skills_fail_before_changing_integrations() {
     files::write_json(&f.spec.join("guidelines.lock.json"), &lock).unwrap();
     commit(&f.spec, "Adopt shared skill");
     let info = f.clone();
-    let output = info.code.join(".agents/skills/same-name/SKILL.md");
+    let output = info.code().join(".agents/skills/same-name/SKILL.md");
     let before = fs::read(&output).unwrap();
     let source = skill_source(
         &info.spec.join("spec/skills"),
@@ -566,25 +582,25 @@ fn integration_selection_removes_only_owned_files_and_can_be_disabled() {
     let changed = workspace::info(&info.spec, false, &|_| {}).unwrap();
     agents::sync(&changed).unwrap();
     assert!(
-        info.code
+        info.code()
             .join(".agents/skills/cspec-workspace/SKILL.md")
             .is_file()
     );
     assert!(
         !info
-            .code
+            .code()
             .join(".claude/skills/cspec-workspace/SKILL.md")
             .exists()
     );
-    assert!(!info.code.join("CLAUDE.md").exists());
+    assert!(!info.code().join("CLAUDE.md").exists());
     definition.agents.clear();
     files::write_json(&info.spec.join("project.json"), &definition).unwrap();
     let changed = workspace::info(&info.spec, false, &|_| {}).unwrap();
     agents::sync(&changed).unwrap();
-    assert!(!info.code.join("AGENTS.md").exists());
+    assert!(!info.code().join("AGENTS.md").exists());
     assert!(
         !info
-            .code
+            .code()
             .join(".agents/skills/cspec-workspace/SKILL.md")
             .exists()
     );
@@ -607,7 +623,7 @@ fn pending_sync_is_diagnosed_and_can_be_retried_without_losing_user_work() {
     let local = info.spec.join(".local");
     let state = fs::read(local.join("agents-state.json")).unwrap();
     fs::write(local.join("agents-pending.json"), &state).unwrap();
-    fs::remove_file(info.code.join("CLAUDE.md")).unwrap();
+    fs::remove_file(info.code().join("CLAUDE.md")).unwrap();
     let before = fs::read(local.join("agents-pending.json")).unwrap();
     let report = operations::diagnose(&info.spec);
     assert!(
@@ -616,20 +632,20 @@ fn pending_sync_is_diagnosed_and_can_be_retried_without_losing_user_work() {
             .any(|check| !check.ok && check.detail.contains("interrupted"))
     );
     assert_eq!(fs::read(local.join("agents-pending.json")).unwrap(), before);
-    assert!(!info.code.join("CLAUDE.md").exists());
+    assert!(!info.code().join("CLAUDE.md").exists());
     agents::sync(&info).unwrap();
     assert!(!local.join("agents-pending.json").exists());
-    assert!(info.code.join("CLAUDE.md").exists());
+    assert!(info.code().join("CLAUDE.md").exists());
     agents::check(&info).unwrap();
     fs::write(local.join("agents-pending.json"), &state).unwrap();
     fs::write(
-        info.code.join("CLAUDE.md"),
+        info.code().join("CLAUDE.md"),
         "User changed this after interruption",
     )
     .unwrap();
     assert!(agents::sync(&info).is_err());
     assert_eq!(
-        fs::read(info.code.join("CLAUDE.md")).unwrap(),
+        fs::read(info.code().join("CLAUDE.md")).unwrap(),
         b"User changed this after interruption"
     );
 }
@@ -672,16 +688,16 @@ fn adopted_definition_is_reported_when_agent_refresh_conflicts() {
     .unwrap();
     commit(&info.editable_guidelines, "Update guidance");
     git::run(&info.editable_guidelines, ["tag", "v0.2.0"]).unwrap();
-    fs::write(info.code.join("AGENTS.md"), "Local user edit").unwrap();
+    fs::write(info.code().join("AGENTS.md"), "Local user edit").unwrap();
     let error = operations::update(&info.spec, "v0.2.0", false, false).unwrap_err();
     assert!(error.to_string().contains("definition is saved"));
     let (manifest, _) = cretspec::manifest::read(&info.spec).unwrap();
     assert_eq!(manifest.guidelines.reference, "v0.2.0");
     assert_eq!(
-        fs::read(info.code.join("AGENTS.md")).unwrap(),
+        fs::read(info.code().join("AGENTS.md")).unwrap(),
         b"Local user edit"
     );
-    fs::remove_file(info.code.join("AGENTS.md")).unwrap();
+    fs::remove_file(info.code().join("AGENTS.md")).unwrap();
     let updated = workspace::info(&info.spec, false, &|_| {}).unwrap();
     agents::sync(&updated).unwrap();
     agents::check(&updated).unwrap();
@@ -703,7 +719,9 @@ fn linked_sources_and_targets_are_rejected_and_executable_resources_survive() {
     fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     agents::sync(&info).unwrap();
-    let destination = info.code.join(".agents/skills/run-check/scripts/check.sh");
+    let destination = info
+        .code()
+        .join(".agents/skills/run-check/scripts/check.sh");
     assert_ne!(
         fs::metadata(destination).unwrap().permissions().mode() & 0o111,
         0
@@ -711,7 +729,7 @@ fn linked_sources_and_targets_are_rejected_and_executable_resources_survive() {
     symlink(f.root.join("outside"), source.join("escape")).unwrap();
     assert!(agents::sync(&info).is_err());
     fs::remove_file(source.join("escape")).unwrap();
-    let generated = info.code.join("CLAUDE.md");
+    let generated = info.code().join("CLAUDE.md");
     fs::remove_file(&generated).unwrap();
     symlink(f.root.join("outside"), &generated).unwrap();
     assert!(agents::sync(&info).is_err());
@@ -794,7 +812,7 @@ fn clone_creates_three_repositories_local_integrations_and_an_exact_snapshot() {
     );
     assert!(!info.active_guidelines.join("draft.md").exists());
     assert!(!info.spec.join(".local/project.code-workspace").exists());
-    for repo in [&info.spec, &info.code] {
+    for repo in [&info.spec, &info.code()] {
         assert_eq!(git::run(repo, ["status", "--porcelain"]).unwrap(), "");
     }
     assert!(f.guidelines.join("draft.md").exists());
@@ -808,7 +826,7 @@ fn editor_regeneration_preserves_settings_and_follows_the_spec() {
     let mut editor: Value = files::read_json(&file).unwrap();
     editor["settings"] = json!({"editor.tabSize":2});
     files::write_json(&file, &editor).unwrap();
-    fs::rename(&info.code, info.project_root.join("RenamedSample")).unwrap();
+    fs::rename(info.code(), info.project_root.join("RenamedSample")).unwrap();
     let mut manifest = f.manifest.clone();
     manifest.name = "RenamedSample".into();
     files::write_json(&info.spec.join("project.json"), &manifest).unwrap();
@@ -835,10 +853,10 @@ fn project_can_move_without_a_registry_or_original_guidelines_source() {
     )
     .unwrap();
     let current = workspace::info(&moved, true, &|_| {}).unwrap();
-    assert_eq!(current.code, moved.join("Sample"));
+    assert_eq!(current.code(), moved.join("Sample"));
     for start in [
         &moved,
-        &current.code,
+        &current.code(),
         &current.spec,
         &current.editable_guidelines,
     ] {
@@ -889,12 +907,12 @@ fn attaching_preserves_uncommitted_code_and_rejects_wrong_placement() {
     git::clone(&f.spec.to_string_lossy(), &spec).unwrap();
     git::clone(&f.code.to_string_lossy(), &code).unwrap();
     fs::write(code.join("README.md"), "User draft").unwrap();
-    workspace::attach(&code, &spec, &|_| {}).unwrap();
+    workspace::attach(Some(&code), &spec, false, &|_| {}).unwrap();
     assert_eq!(
         fs::read_to_string(code.join("README.md")).unwrap(),
         "User draft"
     );
-    assert!(workspace::attach(&f.code, &spec, &|_| {}).is_err());
+    assert!(workspace::attach(Some(&f.code), &spec, false, &|_| {}).is_err());
 }
 
 #[test]
@@ -1039,7 +1057,7 @@ fn tracked_local_files_and_unrelated_guidelines_are_rejected() {
     fs::create_dir(f.spec.join(".local")).unwrap();
     fs::write(f.spec.join(".local/keep.txt"), "Tracked file").unwrap();
     commit(&f.spec, "Tracked local file");
-    assert!(workspace::attach(&f.code, &f.spec, &|_| {}).is_err());
+    assert!(workspace::attach(Some(&f.code), &f.spec, false, &|_| {}).is_err());
     assert_eq!(
         fs::read_to_string(f.spec.join(".local/keep.txt")).unwrap(),
         "Tracked file"
@@ -1089,7 +1107,7 @@ fn editing_one_project_does_not_change_another_or_either_snapshot() {
             "# Rules"
         );
     }
-    workspace::info(&first.code, true, &|_| {}).unwrap();
+    workspace::info(&first.code(), true, &|_| {}).unwrap();
 }
 
 #[test]
@@ -1147,11 +1165,13 @@ fn initialize_from_pinned_templates_preserves_existing_files_and_can_be_cloned()
     operations::initialize(operations::InitOptions {
         directory: &spec,
         name: "Fresh",
-        code: "../Sample",
+        code: Some("../Sample"),
         guidelines: "../CretAI",
         reference: Some("v0.2.0"),
         pinned: true,
-        profile: "rust",
+        profile: Some("rust"),
+        repositories: &[],
+        existing_spec: false,
     })
     .unwrap();
     assert_eq!(
@@ -1165,11 +1185,13 @@ fn initialize_from_pinned_templates_preserves_existing_files_and_can_be_cloned()
         operations::initialize(operations::InitOptions {
             directory: &spec,
             name: "Fresh",
-            code: "../Sample",
+            code: Some("../Sample"),
             guidelines: "../CretAI",
             reference: Some("v0.2.0"),
             pinned: true,
-            profile: "rust",
+            profile: Some("rust"),
+            repositories: &[],
+            existing_spec: false,
         })
         .is_err()
     );
@@ -1190,11 +1212,13 @@ fn initialization_validates_all_templates_before_writing() {
         operations::initialize(operations::InitOptions {
             directory: &spec,
             name: "Fresh",
-            code: "../Sample",
+            code: Some("../Sample"),
             guidelines: "../CretAI",
             reference: Some("v0.1.0"),
             pinned: true,
-            profile: "rust",
+            profile: Some("rust"),
+            repositories: &[],
+            existing_spec: false,
         })
         .is_err()
     );
@@ -1221,7 +1245,7 @@ fn guideline_preview_and_adoption_preserve_drafts_and_other_projects() {
     .unwrap();
     let next = commit(&f.guidelines, "Update rules");
     git::run(&f.guidelines, ["tag", "v0.2.0"]).unwrap();
-    let preview = operations::update(&info.code, "v0.2.0", true, true).unwrap();
+    let preview = operations::update(&info.code(), "v0.2.0", true, true).unwrap();
     assert!(!preview.applied);
     assert_eq!(preview.selected.commit, next);
     assert_eq!(
@@ -1269,14 +1293,14 @@ fn interrupted_adoption_can_be_recovered_without_overwriting_unrelated_edits() {
     )
     .unwrap();
     files::write_json(&info.spec.join("project.json"), &new_manifest).unwrap();
-    assert!(workspace::info(&info.code, true, &|_| {}).is_err());
+    assert!(workspace::info(&info.code(), true, &|_| {}).is_err());
     new_manifest.name = "UserEdit".into();
     files::write_json(&info.spec.join("project.json"), &new_manifest).unwrap();
-    assert!(operations::recover(&info.code).is_err());
+    assert!(operations::recover(&info.code()).is_err());
     assert!(journal.exists());
-    new_manifest.name = info.manifest.name;
+    new_manifest.name = info.manifest.name.clone();
     files::write_json(&info.spec.join("project.json"), &new_manifest).unwrap();
-    operations::recover(&info.code).unwrap();
+    operations::recover(&info.code()).unwrap();
     assert_eq!(
         fs::read_to_string(info.spec.join("project.json")).unwrap(),
         old_manifest
@@ -1300,7 +1324,7 @@ fn doctor_reports_failure_without_creating_context_and_success_after_clone() {
     let checks: Vec<Value> = serde_json::from_str(&ok(f.cli(&[
         "project",
         "doctor",
-        &info.code.to_string_lossy(),
+        &info.code().to_string_lossy(),
         "--json",
     ])))
     .unwrap();
@@ -1339,7 +1363,7 @@ fn working_tree_clone_reads_local_rules_and_uncommitted_shared_skills() {
         "--description",
         "Check a reusable workflow",
         "--location",
-        &info.code.to_string_lossy(),
+        &info.code().to_string_lossy(),
         "--json",
     ])))
     .unwrap();
@@ -1347,23 +1371,23 @@ fn working_tree_clone_reads_local_rules_and_uncommitted_shared_skills() {
     let source = info
         .editable_guidelines
         .join("skills/shared-check/SKILL.md");
-    let refreshed = workspace::info(&info.code, false, &|_| {}).unwrap();
+    let refreshed = workspace::info(&info.code(), false, &|_| {}).unwrap();
     assert!(refreshed.guidelines.dirty);
     let inventory = skills::inventory(&refreshed).unwrap();
     assert!(inventory.shared_drafts.is_empty());
     assert!(inventory.active.iter().any(|s| s.name == "shared-check"));
     assert!(agents::check(&refreshed).is_err());
-    ok(f.cli(&["sync", &info.code.to_string_lossy()]));
+    ok(f.cli(&["sync", &info.code().to_string_lossy()]));
     assert_eq!(
         fs::read(&source).unwrap(),
-        fs::read(info.code.join(".agents/skills/shared-check/SKILL.md")).unwrap()
+        fs::read(info.code().join(".agents/skills/shared-check/SKILL.md")).unwrap()
     );
-    let bootstrap = fs::read_to_string(info.code.join("AGENTS.md")).unwrap();
+    let bootstrap = fs::read_to_string(info.code().join("AGENTS.md")).unwrap();
     assert!(bootstrap.contains("Local guideline edits are active immediately"));
     assert!(!bootstrap.contains("Shared drafts require"));
     let context: Value = serde_json::from_str(&ok(f.cli(&[
         "context",
-        &info.code.to_string_lossy(),
+        &info.code().to_string_lossy(),
         "--json",
     ])))
     .unwrap();
@@ -1371,7 +1395,7 @@ fn working_tree_clone_reads_local_rules_and_uncommitted_shared_skills() {
     assert_eq!(context["project"]["guidelines"]["mode"], "workingTree");
     assert_eq!(context["project"]["guidelines"]["dirty"], true);
     assert_eq!(context["integration"]["ready"], true);
-    let checks = operations::diagnose(&info.code);
+    let checks = operations::diagnose(&info.code());
     assert!(checks.iter().all(|c| c.ok));
     assert!(
         checks
@@ -1400,7 +1424,8 @@ fn working_tree_commands_never_fetch_pull_or_switch_and_manual_git_updates_skill
         vec!["sync"],
         vec!["project", "doctor"],
     ] {
-        let path = info.code.to_string_lossy();
+        let code = info.code();
+        let path = code.to_string_lossy();
         let mut args = args;
         args.push(&path);
         if args[1] == "open" {
@@ -1424,33 +1449,33 @@ fn working_tree_commands_never_fetch_pull_or_switch_and_manual_git_updates_skill
         fs::read_to_string(info.editable_guidelines.join("draft.md")).unwrap(),
         "Local draft"
     );
-    assert!(!info.code.join(".agents/skills/remote-check").exists());
+    assert!(!info.code().join(".agents/skills/remote-check").exists());
     assert!(
-        operations::diagnose(&info.code)
+        operations::diagnose(&info.code())
             .iter()
             .any(|c| c.detail.contains("differs from configured"))
     );
     git::run(&info.editable_guidelines, ["switch", "main"]).unwrap();
     git::run(&info.editable_guidelines, ["fetch", "origin"]).unwrap();
-    let fetched = workspace::info(&info.code, false, &|_| {}).unwrap();
+    let fetched = workspace::info(&info.code(), false, &|_| {}).unwrap();
     assert_eq!(fetched.guidelines.behind, Some(1));
     assert_eq!(fetched.guidelines.commit, before);
     git::run(&info.editable_guidelines, ["pull", "--ff-only"]).unwrap();
-    ok(f.cli(&["sync", &info.code.to_string_lossy()]));
+    ok(f.cli(&["sync", &info.code().to_string_lossy()]));
     assert!(
-        info.code
+        info.code()
             .join(".agents/skills/remote-check/SKILL.md")
             .is_file()
     );
     git::run(&info.editable_guidelines, ["checkout", "--detach", &remote]).unwrap();
-    let detached = workspace::info(&info.code, true, &|_| {}).unwrap();
+    let detached = workspace::info(&info.code(), true, &|_| {}).unwrap();
     assert!(detached.guidelines.branch.is_none());
     assert!(
-        operations::diagnose(&info.code)
+        operations::diagnose(&info.code())
             .iter()
             .any(|c| c.detail.contains("detached HEAD"))
     );
-    assert!(operations::unlock(&info.code, false).is_err());
+    assert!(operations::unlock(&info.code(), false).is_err());
     assert!(detached.lock.is_none());
 }
 
@@ -1540,7 +1565,7 @@ fn working_tree_clone_selects_configured_branch_and_rejects_tags() {
     let mut invalid = info.manifest.clone();
     invalid.guidelines.reference = "v0.1.0".into();
     files::write_json(&info.spec.join("project.json"), &invalid).unwrap();
-    assert!(workspace::info(&info.code, true, &|_| {}).is_err());
+    assert!(workspace::info(&info.code(), true, &|_| {}).is_err());
     assert_eq!(
         git::run(&info.editable_guidelines, ["branch", "--show-current"]).unwrap(),
         "development"
@@ -1558,15 +1583,15 @@ fn optional_pinning_and_unlock_preserve_drafts_snapshots_and_preview_definition(
     );
     agents::sync(&info).unwrap();
     let original = fs::read(info.spec.join("project.json")).unwrap();
-    operations::update(&info.code, "v0.1.0", true, false).unwrap();
+    operations::update(&info.code(), "v0.1.0", true, false).unwrap();
     assert_eq!(fs::read(info.spec.join("project.json")).unwrap(), original);
     assert!(!info.spec.join("guidelines.lock.json").exists());
-    operations::update(&info.code, "v0.1.0", false, false).unwrap();
-    let pinned = workspace::info(&info.code, false, &|_| {}).unwrap();
+    operations::update(&info.code(), "v0.1.0", false, false).unwrap();
+    let pinned = workspace::info(&info.code(), false, &|_| {}).unwrap();
     assert_eq!(pinned.lock.as_ref().unwrap().commit, f.lock.commit);
     assert!(
         !pinned
-            .code
+            .code()
             .join(".agents/skills/local-check/SKILL.md")
             .exists()
     );
@@ -1581,7 +1606,7 @@ fn optional_pinning_and_unlock_preserve_drafts_snapshots_and_preview_definition(
     ok(f.cli(&[
         "guidelines",
         "unlock",
-        &info.code.to_string_lossy(),
+        &info.code().to_string_lossy(),
         "--preview",
     ]));
     assert_eq!(
@@ -1594,10 +1619,10 @@ fn optional_pinning_and_unlock_preserve_drafts_snapshots_and_preview_definition(
     );
     // An explicit pin cannot silently downgrade when its lock is lost.
     fs::remove_file(pinned.spec.join("guidelines.lock.json")).unwrap();
-    assert!(workspace::info(&pinned.code, false, &|_| {}).is_err());
+    assert!(workspace::info(&pinned.code(), false, &|_| {}).is_err());
     fs::write(pinned.spec.join("guidelines.lock.json"), lock).unwrap();
-    ok(f.cli(&["guidelines", "unlock", &info.code.to_string_lossy()]));
-    let unlocked = workspace::info(&info.code, false, &|_| {}).unwrap();
+    ok(f.cli(&["guidelines", "unlock", &info.code().to_string_lossy()]));
+    let unlocked = workspace::info(&info.code(), false, &|_| {}).unwrap();
     assert!(unlocked.lock.is_none());
     assert!(unlocked.guidelines.dirty);
     assert_eq!(
@@ -1606,7 +1631,7 @@ fn optional_pinning_and_unlock_preserve_drafts_snapshots_and_preview_definition(
     );
     assert!(pinned.active_guidelines.is_dir());
     assert!(
-        info.code
+        info.code()
             .join(".agents/skills/local-check/SKILL.md")
             .exists()
     );
@@ -1619,9 +1644,9 @@ fn interrupted_pin_and_unlock_restore_lock_presence_and_exact_original_text() {
     let info = f.clone();
     for unlocking in [false, true] {
         if unlocking {
-            operations::update(&info.code, "v0.1.0", false, false).unwrap();
+            operations::update(&info.code(), "v0.1.0", false, false).unwrap();
         }
-        let current = workspace::info(&info.code, false, &|_| {}).unwrap();
+        let current = workspace::info(&info.code(), false, &|_| {}).unwrap();
         let old_manifest = fs::read_to_string(current.spec.join("project.json")).unwrap();
         let old_lock = fs::read_to_string(current.spec.join("guidelines.lock.json")).ok();
         let mut next_manifest = current.manifest.clone();
@@ -1642,8 +1667,8 @@ fn interrupted_pin_and_unlock_restore_lock_presence_and_exact_original_text() {
         } else {
             fs::remove_file(current.spec.join("guidelines.lock.json")).unwrap();
         }
-        assert!(workspace::info(&current.code, false, &|_| {}).is_err());
-        operations::recover(&current.code).unwrap();
+        assert!(workspace::info(&current.code(), false, &|_| {}).is_err());
+        operations::recover(&current.code()).unwrap();
         assert_eq!(
             fs::read_to_string(current.spec.join("project.json")).unwrap(),
             old_manifest
@@ -1671,7 +1696,545 @@ fn unlocking_validates_active_skills_before_changing_definition() {
         "Shared workflow",
     );
     let before = fs::read(info.spec.join("project.json")).unwrap();
-    assert!(operations::unlock(&info.code, false).is_err());
+    assert!(operations::unlock(&info.code(), false).is_err());
     assert_eq!(fs::read(info.spec.join("project.json")).unwrap(), before);
     assert!(info.spec.join("guidelines.lock.json").exists());
+}
+
+/// Rewrites the fixture spec as a schema version 2 workspace with an application
+/// repository at the legacy code path and an infrastructure repository.
+fn v2_fixture() -> Fixture {
+    let f = Fixture::new();
+    let infra = f.source.join("Infra");
+    repo(&infra);
+    fs::write(infra.join("README.md"), "# Infra\n").unwrap();
+    commit(&infra, "Fixture");
+    files::write_json(&f.spec.join("project.json"), &v2_manifest()).unwrap();
+    commit(&f.spec, "Declare repositories");
+    f
+}
+
+fn v2_manifest() -> Value {
+    json!({
+        "schemaVersion": 2,
+        "name": "Sample",
+        "specRepository": {"name": "sample-spec", "purpose": "Workspace specification."},
+        "repositories": [
+            {"name": "app", "url": "../Sample", "path": "Sample", "purpose": "Application code.", "profile": "rust"},
+            {"name": "infra", "url": "../Infra", "purpose": "Infrastructure and GitOps."}
+        ],
+        "guidelines": {"repository": "../CretAI", "ref": "v0.1.0"},
+        "agents": ["codex", "claude"]
+    })
+}
+
+fn role_source(info: &workspace::ProjectInfo, name: &str, header: &str, body: &str) -> PathBuf {
+    let directory = info.spec.join("spec/roles");
+    fs::create_dir_all(&directory).unwrap();
+    let path = directory.join(format!("{name}.md"));
+    fs::write(&path, format!("---\nname: {name}\n{header}---\n\n{body}\n")).unwrap();
+    path
+}
+
+#[test]
+fn version_two_clones_every_repository_and_reports_them() {
+    let f = v2_fixture();
+    let info = f.clone();
+    assert!(info.code.is_none());
+    assert_eq!(
+        children(&info.project_root)
+            .into_iter()
+            .filter(|n| !n.starts_with('.') && !n.ends_with(".md"))
+            .collect::<Vec<_>>(),
+        ["CretAI", "Sample", "Sample-spec", "infra"]
+    );
+    let infra = info.project_root.join("infra");
+    assert_eq!(
+        repository::identity(&repository::origin(&infra).unwrap()).unwrap(),
+        repository::identity(&f.source.join("Infra").to_string_lossy()).unwrap()
+    );
+    let names: Vec<_> = info.repositories.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["app", "infra"]);
+    let root = fs::read_to_string(info.project_root.join("AGENTS.md")).unwrap();
+    assert!(root.contains("- Repository `infra`: `infra`: Infrastructure and GitOps."));
+    assert!(root.contains("- Repository `app`: `Sample`: Application code. (profile `rust`)"));
+    assert!(root.contains("repository `sample-spec`: `Sample-spec`: Workspace specification."));
+    let generated = fs::read_to_string(infra.join("AGENTS.md")).unwrap();
+    assert!(generated.contains("- Repository `app`: `../Sample`"));
+    git::run(&infra, ["check-ignore", "--quiet", "--", "AGENTS.md"]).unwrap();
+    assert_eq!(git::run(&infra, ["status", "--porcelain"]).unwrap(), "");
+    let context: Value =
+        serde_json::from_str(&ok(f.cli(&["context", &infra.to_string_lossy(), "--json"]))).unwrap();
+    assert_eq!(context["project"]["repositories"][1]["name"], "infra");
+    assert_eq!(context["project"]["specRepository"]["name"], "sample-spec");
+    assert!(context["project"].get("code").is_none());
+    assert_eq!(context["repositoryStates"][2]["dirty"], false);
+    assert_eq!(context["integration"]["ready"], true);
+    let checks = operations::diagnose(&infra);
+    assert!(
+        checks.iter().all(|c| c.ok),
+        "{:?}",
+        checks.iter().map(|c| &c.detail).collect::<Vec<_>>()
+    );
+    assert!(
+        checks
+            .iter()
+            .any(|c| c.name == "Repositories" && c.detail.starts_with("2 declared"))
+    );
+    let editor: Value = files::read_json(&workspace::editor_workspace(&infra).unwrap()).unwrap();
+    let folders: Vec<_> = editor["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(folders, ["Sample", "infra", "Sample-spec", "CretAI"]);
+}
+
+#[test]
+fn version_two_definitions_reject_ambiguous_repositories() {
+    let f = v2_fixture();
+    let invalid = |change: &dyn Fn(&mut Value)| {
+        let mut value = v2_manifest();
+        change(&mut value);
+        let manifest: Result<cretspec::manifest::Manifest, _> = serde_json::from_value(value);
+        manifest.map_or(true, |m| cretspec::manifest::validate(&m, None).is_err())
+    };
+    assert!(!invalid(&|_| {}));
+    assert!(invalid(&|v| v["repositories"][1]["name"] = json!("app")));
+    assert!(invalid(
+        &|v| v["repositories"][1]["name"] = json!("sample-spec")
+    ));
+    assert!(invalid(&|v| v["repositories"][1]["path"] = json!("sample")));
+    assert!(invalid(&|v| v["repositories"][1]["path"] = json!("roles")));
+    assert!(invalid(
+        &|v| v["repositories"][1]["path"] = json!("../outside")
+    ));
+    assert!(invalid(&|v| v["repositories"][1]["path"] = json!(".hidden")));
+    assert!(invalid(&|v| v["repositories"][1]["name"] = json!("Infra")));
+    assert!(invalid(
+        &|v| v["repositories"][1]["url"] = json!("https://user:secret@example.com/infra.git")
+    ));
+    assert!(invalid(
+        &|v| v["repositories"][1]["url"] = json!("https://user@example.com/infra.git")
+    ));
+    assert!(invalid(
+        &|v| v["repositories"][1]["purpose"] = json!("Two\nlines")
+    ));
+    assert!(invalid(
+        &|v| v["repositories"][1]["run"] = json!("untrusted command")
+    ));
+    assert!(invalid(&|v| v["code"] = json!({"repository": "../Sample"})));
+    assert!(invalid(&|v| v["profile"] = json!("rust")));
+    assert!(invalid(&|v| {
+        v.as_object_mut().unwrap().remove("repositories");
+    }));
+    assert!(invalid(&|v| v["schemaVersion"] = json!(3)));
+    assert!(invalid(&|v| {
+        v["schemaVersion"] = json!(1);
+        v["code"] = json!({"repository": "../Sample"});
+        v["profile"] = json!("rust");
+    }));
+    let mut duplicate = v2_manifest();
+    duplicate["repositories"][1]["url"] = json!("../Sample");
+    let duplicate: cretspec::manifest::Manifest = serde_json::from_value(duplicate).unwrap();
+    cretspec::manifest::validate(&duplicate, None).unwrap();
+    let error = workspace::paths(&f.spec, &duplicate, &f.spec.to_string_lossy())
+        .err()
+        .unwrap();
+    assert!(format!("{error:#}").contains("already part of the workspace"));
+}
+
+#[test]
+fn attach_includes_existing_clones_in_place_and_stops_on_problems() {
+    let f = v2_fixture();
+    let root = f.destination.join("existing");
+    fs::create_dir(&root).unwrap();
+    let spec = root.join("Sample-spec");
+    let app = root.join("Sample");
+    let infra = root.join("infra");
+    git::clone(&f.spec.to_string_lossy(), &spec).unwrap();
+    git::clone(&f.code.to_string_lossy(), &app).unwrap();
+    git::run(&app, ["switch", "-c", "feature/local-work"]).unwrap();
+    fs::write(app.join("README.md"), "# Uncommitted local work\n").unwrap();
+    fs::write(app.join("AGENTS.md"), "# Untracked owner notes\n").unwrap();
+    let head = git::run(&app, ["rev-parse", "HEAD"]).unwrap();
+    let unchanged = |expected_dirty: &str| {
+        assert_eq!(
+            fs::read_to_string(app.join("README.md")).unwrap(),
+            "# Uncommitted local work\n"
+        );
+        assert_eq!(
+            fs::read_to_string(app.join("AGENTS.md")).unwrap(),
+            "# Untracked owner notes\n"
+        );
+        assert_eq!(git::run(&app, ["rev-parse", "HEAD"]).unwrap(), head);
+        assert_eq!(
+            git::run(&app, ["symbolic-ref", "--short", "HEAD"]).unwrap(),
+            "feature/local-work"
+        );
+        assert_eq!(
+            git::run(&app, ["status", "--porcelain"]).unwrap(),
+            expected_dirty
+        );
+    };
+    let dirty = "M README.md\n?? AGENTS.md".to_owned();
+    let error = format!(
+        "{:#}",
+        workspace::attach(None, &spec, false, &|_| {}).unwrap_err()
+    );
+    assert!(
+        error.contains("missing") && error.contains("infra") && error.contains("--clone-missing")
+    );
+    assert!(!spec.join(".local").exists());
+    assert!(!root.join("CretAI").exists());
+    unchanged(&dirty);
+    git::clone(&f.guidelines.to_string_lossy(), &infra).unwrap();
+    let error = format!(
+        "{:#}",
+        workspace::attach(None, &spec, false, &|_| {}).unwrap_err()
+    );
+    assert!(
+        error.contains("does not match") && error.contains("Nothing")
+            || error.contains("No repository")
+    );
+    assert!(!spec.join(".local").exists());
+    unchanged(&dirty);
+    fs::remove_dir_all(&infra).unwrap();
+    let legacy = workspace::attach(Some(&app), &spec, false, &|_| {}).unwrap_err();
+    assert!(format!("{legacy:#}").contains("attach <spec>"));
+    let undeclared = root.join("notes");
+    repo(&undeclared);
+    let info = workspace::attach(None, &spec, true, &|_| {}).unwrap();
+    assert!(infra.join("README.md").is_file());
+    unchanged(&dirty);
+    assert!(
+        fs::read_to_string(app.join("AGENTS.override.md"))
+            .unwrap()
+            .contains("Untracked owner notes")
+    );
+    assert_eq!(
+        workspace::undeclared_repositories(&info).unwrap(),
+        [undeclared]
+    );
+    let checks = operations::diagnose(&root);
+    assert!(checks.iter().all(|c| c.ok));
+    assert!(checks.iter().any(|c| c.detail.contains("undeclared Git repositories") && c.detail.contains("notes")));
+    let states = workspace::repository_states(&info).unwrap();
+    let app_state = states.iter().find(|s| s.name == "app").unwrap();
+    assert_eq!(app_state.branch.as_deref(), Some("feature/local-work"));
+    assert!(app_state.dirty);
+}
+
+#[test]
+fn azure_devops_and_github_origins_identify_the_same_repository() {
+    let forms = [
+        "git@ssh.dev.azure.com:v3/hcpartners/HCMT/HCMT",
+        "ssh://git@ssh.dev.azure.com/v3/hcpartners/HCMT/HCMT",
+        "https://dev.azure.com/hcpartners/HCMT/_git/HCMT",
+        "https://dev.azure.com/HCPartners/hcmt/_git/hcmt",
+        "https://hcpartners.visualstudio.com/HCMT/_git/HCMT",
+        "https://hcpartners.visualstudio.com/DefaultCollection/HCMT/_git/HCMT",
+        "hcpartners@vs-ssh.visualstudio.com:v3/hcpartners/HCMT/HCMT",
+    ];
+    let expected = repository::identity(forms[0]).unwrap();
+    for form in forms {
+        assert_eq!(repository::identity(form).unwrap(), expected, "{form}");
+    }
+    let with_user =
+        repository::without_user("https://hcpartners@dev.azure.com/hcpartners/HCMT/_git/HCMT")
+            .unwrap();
+    assert_eq!(with_user, "https://dev.azure.com/hcpartners/HCMT/_git/HCMT");
+    assert_eq!(repository::identity(&with_user).unwrap(), expected);
+    let password =
+        repository::without_user("https://user:secret@dev.azure.com/o/p/_git/r").unwrap_err();
+    assert!(!format!("{password:#}").contains("secret"));
+    assert_ne!(
+        repository::identity("git@ssh.dev.azure.com:v3/hcpartners/HCMT/Other").unwrap(),
+        expected
+    );
+    assert_eq!(
+        repository::identity("git@github.com:owner/homelab.git").unwrap(),
+        repository::identity("https://github.com/owner/homelab").unwrap()
+    );
+}
+
+#[test]
+fn combined_spec_and_code_repository_keeps_its_existing_specification() {
+    let f = Fixture::new();
+    let root = f.destination.join("combined");
+    let app = root.join("app");
+    let infra = root.join("infra");
+    repo(&app);
+    fs::create_dir_all(app.join("spec/stories")).unwrap();
+    fs::write(app.join("spec/README.md"), "# Application specification\n").unwrap();
+    fs::write(app.join("spec/stories/S-001.md"), "# Existing story\n").unwrap();
+    fs::write(app.join("Program.cs"), "// code\n").unwrap();
+    fs::write(app.join("AGENTS.md"), "# Application agent contract\n").unwrap();
+    fs::write(app.join("CLAUDE.md"), "Read AGENTS.md first.\n").unwrap();
+    commit(&app, "Existing application");
+    repo(&infra);
+    fs::write(infra.join("README.md"), "# Infra\n").unwrap();
+    commit(&infra, "Infra");
+    git::run(
+        &infra,
+        [
+            "remote",
+            "add",
+            "origin",
+            "https://org@dev.azure.com/org/Platform/_git/infra",
+        ],
+    )
+    .unwrap();
+    let guidelines = f.guidelines.to_string_lossy().into_owned();
+    let declared = ["infra".to_owned()];
+    let options = |existing_spec| operations::InitOptions {
+        directory: &app,
+        name: "Combined",
+        code: None,
+        guidelines: &guidelines,
+        reference: None,
+        pinned: false,
+        profile: Some("rust"),
+        repositories: &declared,
+        existing_spec,
+    };
+    let error = operations::initialize(options(false)).unwrap_err();
+    assert!(format!("{error:#}").contains("--existing-spec"));
+    operations::initialize(options(true)).unwrap();
+    let definition: Value = files::read_json(&app.join("project.json")).unwrap();
+    assert_eq!(definition["schemaVersion"], 2);
+    assert_eq!(
+        definition["specRepository"],
+        json!({"name": "app", "profile": "rust"})
+    );
+    assert_eq!(
+        definition["repositories"],
+        json!([{"name": "infra", "url": "https://dev.azure.com/org/Platform/_git/infra"}])
+    );
+    assert_eq!(children(&app.join("spec")), ["README.md", "stories"]);
+    assert_eq!(
+        fs::read_to_string(app.join("spec/stories/S-001.md")).unwrap(),
+        "# Existing story\n"
+    );
+    let info = workspace::attach(None, &app, false, &|_| {}).unwrap();
+    assert!(info.code.is_none());
+    assert_eq!(info.spec_repository.name, "app");
+    assert_eq!(
+        fs::read_to_string(app.join("AGENTS.md")).unwrap(),
+        "# Application agent contract\n"
+    );
+    assert!(
+        fs::read_to_string(app.join("AGENTS.override.md"))
+            .unwrap()
+            .starts_with("# Application agent contract")
+    );
+    assert_eq!(
+        fs::read_to_string(app.join("CLAUDE.md")).unwrap(),
+        "Read AGENTS.md first.\n"
+    );
+    let claude = fs::read_to_string(app.join("CLAUDE.local.md")).unwrap();
+    assert!(
+        claude.contains("repository `app`: `.`") || claude.contains("repository `app`: `../app`")
+    );
+    assert!(!claude.contains("Application agent contract"));
+    assert_eq!(
+        git::run(&app, ["status", "--porcelain"]).unwrap(),
+        "?? project.json"
+    );
+    fs::write(app.join("AGENTS.md"), "# Changed contract\n").unwrap();
+    let stale = format!("{:#}", agents::check(&info).unwrap_err());
+    assert!(
+        stale.contains("tracked") && stale.contains("changed since the last sync"),
+        "{stale}"
+    );
+}
+
+#[test]
+fn roles_generate_separate_entry_points_without_changing_shared_files() {
+    let f = v2_fixture();
+    let info = f.clone();
+    skill_source(
+        &info.spec.join("spec/skills"),
+        "release-check",
+        "Check a release.",
+    );
+    role_source(
+        &info,
+        "operations",
+        "description: Operate the system and maintain the backlog.\nrepositories: [sample-spec, infra]\nskills: []\n",
+        "Investigate system status only when asked.",
+    );
+    role_source(
+        &info,
+        "app-dev",
+        "description: Develop the application and related infrastructure.\nrepositories: [app, infra]\n",
+        "Keep application code and infrastructure in their own repositories.",
+    );
+    agents::sync(&info).unwrap();
+    let operations_dir = info.project_root.join("roles").join("operations");
+    let development = info.project_root.join("roles").join("app-dev");
+    let codex = fs::read_to_string(operations_dir.join("AGENTS.md")).unwrap();
+    assert!(codex.starts_with("# CretSpec workspace"));
+    assert!(codex.contains("## Role: operations"));
+    assert!(codex.contains("- `infra`: `../../infra`"));
+    assert!(codex.contains("Investigate system status only when asked."));
+    assert!(codex.contains("not a security boundary"));
+    assert_eq!(
+        fs::read_to_string(operations_dir.join("CLAUDE.md")).unwrap(),
+        "@AGENTS.md\n"
+    );
+    assert_eq!(
+        children(&operations_dir.join(".claude/skills")),
+        ["cspec-workspace"]
+    );
+    assert_eq!(
+        children(&development.join(".agents/skills")),
+        ["cspec-workspace", "release-check"]
+    );
+    for shared in [
+        info.project_root.join("AGENTS.md"),
+        info.project_root.join("infra/AGENTS.md"),
+        info.spec.join("AGENTS.md"),
+    ] {
+        let text = fs::read_to_string(shared).unwrap();
+        assert!(!text.contains("## Role:"));
+        assert!(text.contains("`app-dev`") && text.contains("`operations`"));
+    }
+    agents::check(&info).unwrap();
+    let shared_before = fs::read(info.project_root.join("AGENTS.md")).unwrap();
+    let development_before = fs::read(development.join("AGENTS.md")).unwrap();
+    role_source(
+        &info,
+        "operations",
+        "description: Operate the system and maintain the backlog.\nrepositories: [sample-spec, infra]\nskills: []\n",
+        "Investigate system status only when asked. Never change the cluster.",
+    );
+    let result = agents::sync(&info).unwrap();
+    // Only the changed role's AGENTS.md changes; its CLAUDE.md imports that file.
+    assert_eq!(result.written, 1);
+    assert_eq!(
+        fs::read(info.project_root.join("AGENTS.md")).unwrap(),
+        shared_before
+    );
+    assert_eq!(
+        fs::read(development.join("AGENTS.md")).unwrap(),
+        development_before
+    );
+    let state = fs::read(info.spec.join(".local/agents-state.json")).unwrap();
+    let context: Value = serde_json::from_str(&ok(f.cli(&[
+        "context",
+        &info.spec.to_string_lossy(),
+        "--json",
+        "--role",
+        "app-dev",
+    ])))
+    .unwrap();
+    assert_eq!(context["role"]["entryPoint"], json!(development));
+    assert_eq!(
+        context["role"]["additionalDirectories"],
+        json!([
+            info.project_root.join("Sample"),
+            info.project_root.join("infra")
+        ])
+    );
+    assert_eq!(
+        context["role"]["skills"],
+        json!(["cspec-workspace", "release-check"])
+    );
+    assert_eq!(context["roles"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fs::read(info.spec.join(".local/agents-state.json")).unwrap(),
+        state
+    );
+    assert!(
+        !f.cli(&["context", &info.spec.to_string_lossy(), "--role", "unknown"])
+            .status
+            .success()
+    );
+    let operations_before = fs::read(operations_dir.join("AGENTS.md")).unwrap();
+    let source = role_source(
+        &info,
+        "operations",
+        "description: Broken.\nrepositories: [unknown]\n",
+        "Body.",
+    );
+    assert!(format!("{:#}", agents::sync(&info).unwrap_err()).contains("unknown repository"));
+    role_source(
+        &info,
+        "operations",
+        "description: Broken.\nskills: [missing]\n",
+        "Body.",
+    );
+    assert!(format!("{:#}", agents::sync(&info).unwrap_err()).contains("not active"));
+    fs::write(
+        &source,
+        "---\nname: operations\ndescription: Unknown field.\nscope: all\n---\n\nBody.\n",
+    )
+    .unwrap();
+    assert!(agents::sync(&info).is_err());
+    assert_eq!(
+        fs::read(operations_dir.join("AGENTS.md")).unwrap(),
+        operations_before
+    );
+    role_source(
+        &info,
+        "operations",
+        "description: Large role.\n",
+        &"Detailed procedure. ".repeat(2000),
+    );
+    agents::sync(&info).unwrap();
+    assert!(
+        cretspec::agents::size_warnings(&info)
+            .iter()
+            .any(|w| w.contains("32 KiB"))
+    );
+    fs::remove_file(info.spec.join("spec/roles/app-dev.md")).unwrap();
+    agents::sync(&info).unwrap();
+    assert!(!development.exists());
+    assert!(operations_dir.join("AGENTS.md").is_file());
+    agents::check(&info).unwrap();
+}
+
+#[test]
+fn version_one_projects_can_declare_their_repository_by_name() {
+    let f = Fixture::new();
+    let info = f.clone();
+    let mut definition = v2_manifest();
+    definition["repositories"] = json!([{"name": "app", "url": "../Sample", "path": "Sample"}]);
+    definition["agents"] = json!(["codex", "claude", "copilot", "cursor"]);
+    files::write_json(&info.spec.join("project.json"), &definition).unwrap();
+    let converted = workspace::info(&info.project_root, false, &|_| {}).unwrap();
+    assert!(agents::check(&converted).is_err());
+    agents::sync(&converted).unwrap();
+    agents::check(&converted).unwrap();
+    assert!(
+        fs::read_to_string(info.code().join("AGENTS.md"))
+            .unwrap()
+            .contains("- Repository `app`: `../Sample`")
+    );
+    let state: Value = files::read_json(&info.spec.join(".local/agents-state.json")).unwrap();
+    let keys: Vec<_> = state["files"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert!(keys.iter().any(|k| k == "repo:Sample/AGENTS.md"));
+    assert!(!keys.iter().any(|k| k.starts_with("code/")));
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_outside_a_workspace_ignores_inaccessible_directories() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let start = temp.path().join("work");
+    let private = temp.path().join("private");
+    fs::create_dir(&start).unwrap();
+    fs::create_dir(&private).unwrap();
+    fs::set_permissions(&private, fs::Permissions::from_mode(0o000)).unwrap();
+    let error = workspace::discover_spec(&start);
+    fs::set_permissions(&private, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(format!("{:#}", error.unwrap_err()).contains("No project spec found"));
 }

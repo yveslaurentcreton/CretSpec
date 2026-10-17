@@ -1,6 +1,7 @@
 use crate::{
     files, git,
-    manifest::Agent,
+    manifest::{Agent, ROLES_DIRECTORY},
+    roles::{self, Role},
     skills::{self, Resource},
     workspace::{self, ProjectInfo},
 };
@@ -63,22 +64,71 @@ fn stamp(resource: &Resource) -> Stamp {
     }
 }
 
-fn anchors(info: &ProjectInfo) -> [(&str, &Path); 4] {
-    [
-        ("root", &info.project_root),
-        ("code", &info.code),
-        ("spec", &info.spec),
-        ("guidelines", &info.editable_guidelines),
-    ]
+/// A location that receives generated entry points. Shared anchors are role-neutral;
+/// role anchors are generated folders inside the project root.
+struct Anchor {
+    name: String,
+    base: PathBuf,
+    role: Option<Role>,
 }
 
-fn target<'a>(info: &'a ProjectInfo, key: &str) -> Result<(&'a Path, String, PathBuf)> {
+fn anchors(info: &ProjectInfo, roles: Vec<Role>) -> Vec<Anchor> {
+    let shared = [
+        ("root".to_owned(), info.project_root.clone()),
+        ("spec".into(), info.spec.clone()),
+        ("guidelines".into(), info.editable_guidelines.clone()),
+    ]
+    .into_iter()
+    .chain(
+        info.repositories
+            .iter()
+            .map(|r| (r.anchor.clone(), r.path.clone())),
+    )
+    .map(|(name, base)| Anchor {
+        name,
+        base,
+        role: None,
+    });
+    let roles = roles.into_iter().map(|role| Anchor {
+        name: format!("role:{}", role.name),
+        base: roles::entry_point(info, &role.name),
+        role: Some(role),
+    });
+    shared.chain(roles).collect()
+}
+
+struct Target {
+    base: PathBuf,
+    path: PathBuf,
+    git: bool,
+    role: bool,
+}
+
+/// Resolves an ownership key. Keys of removed repositories and roles still resolve,
+/// so their generated files can be removed after verification.
+fn target(info: &ProjectInfo, key: &str) -> Result<Target> {
     let (anchor, relative) = key.split_once('/').context("Invalid generated file key")?;
-    let base = anchors(info)
-        .into_iter()
-        .find(|(name, _)| *name == anchor)
-        .map(|(_, path)| path)
-        .context("Invalid generated file anchor")?;
+    let (base, git, role) = match anchor {
+        "root" => (info.project_root.clone(), false, false),
+        "spec" => (info.spec.clone(), true, false),
+        "guidelines" => (info.editable_guidelines.clone(), true, false),
+        // Schema version 1 places the code repository at the project name.
+        "code" => (info.project_root.join(&info.manifest.name), true, false),
+        _ => {
+            if let Some(directory) = anchor.strip_prefix("repo:")
+                && files::portable_name(directory)
+                && !directory.starts_with('.')
+            {
+                (info.project_root.join(directory), true, false)
+            } else if let Some(name) = anchor.strip_prefix("role:")
+                && skills::valid_name(name)
+            {
+                (roles::entry_point(info, name), false, true)
+            } else {
+                bail!("Invalid generated file anchor")
+            }
+        }
+    };
     let instruction = matches!(
         relative,
         "AGENTS.md"
@@ -98,7 +148,29 @@ fn target<'a>(info: &'a ProjectInfo, key: &str) -> Result<(&'a Path, String, Pat
     if !instruction && !skill {
         bail!("Invalid generated file path: {key}");
     }
-    Ok((base, relative.into(), base.join(relative)))
+    Ok(Target {
+        path: base.join(relative),
+        base,
+        git,
+        role,
+    })
+}
+
+/// Checks that a target's base can be used. Missing role folders are created by sync;
+/// a missing repository base means there is nothing to inspect or remove.
+fn base_present(info: &ProjectInfo, target: &Target) -> Result<bool> {
+    if target.role {
+        let roles = info.project_root.join(ROLES_DIRECTORY);
+        if files::exists(&roles)? {
+            files::directory(&roles)?;
+        }
+    }
+    if files::exists(&target.base)? {
+        files::directory(&target.base)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 fn check_parents(base: &Path, path: &Path) -> Result<()> {
@@ -185,16 +257,15 @@ fn ownership(info: &ProjectInfo) -> Result<State> {
     Ok(state)
 }
 
-fn relative(info: &ProjectInfo, anchor: &str, path: &Path) -> Result<String> {
+/// A path relative to `base`, where both lie inside the project root.
+fn relative(info: &ProjectInfo, base: &Path, path: &Path) -> Result<String> {
+    let depth = base.strip_prefix(&info.project_root)?.components().count();
     let relative = path
         .strip_prefix(&info.project_root)?
         .to_str()
         .context("Workspace paths must be UTF-8")?
         .replace('\\', "/");
-    Ok(format!(
-        "{}{relative}",
-        if anchor == "root" { "" } else { "../" }
-    ))
+    Ok(format!("{}{relative}", "../".repeat(depth)))
 }
 
 pub fn instruction_sources(info: &ProjectInfo) -> Vec<PathBuf> {
@@ -202,19 +273,74 @@ pub fn instruction_sources(info: &ProjectInfo) -> Vec<PathBuf> {
         info.active_guidelines.join("README.md"),
         info.active_guidelines.join("guidelines/principles.md"),
         info.active_guidelines.join("guidelines/specification.md"),
-        info.active_guidelines
-            .join(format!("profiles/{}.md", info.manifest.profile)),
-        info.spec.join("spec/project-rules.md"),
     ]
     .into_iter()
+    .chain(info.manifest.profiles().into_iter().map(|profile| {
+        info.active_guidelines
+            .join(format!("profiles/{profile}.md"))
+    }))
+    .chain([info.spec.join("spec/project-rules.md")])
     .filter(|path| path.is_file())
     .collect()
 }
 
-fn bootstrap(info: &ProjectInfo, anchor: &str) -> Result<String> {
+fn described(purpose: Option<&str>, profile: Option<&str>) -> String {
+    let mut text = match purpose {
+        Some(purpose) => format!(": {purpose}"),
+        None => ": purpose not described".into(),
+    };
+    if let Some(profile) = profile {
+        text.push_str(&format!(" (profile `{profile}`)"));
+    }
+    text
+}
+
+fn repository_map(info: &ProjectInfo, base: &Path) -> Result<String> {
+    let mut lines = Vec::new();
+    if info.manifest.code.is_some() {
+        lines.push(format!(
+            "- Project definition and specification: `{}`",
+            relative(info, base, &info.spec)?
+        ));
+        for repository in &info.repositories {
+            lines.push(format!(
+                "- Product code: `{}`",
+                relative(info, base, &repository.path)?
+            ));
+        }
+    } else {
+        let spec = &info.spec_repository;
+        lines.push(format!(
+            "- Project definition and specification, repository `{}`: `{}`{}",
+            spec.name,
+            relative(info, base, &info.spec)?,
+            described(spec.purpose.as_deref(), spec.profile.as_deref())
+        ));
+        for repository in &info.repositories {
+            lines.push(format!(
+                "- Repository `{}`: `{}`{}",
+                repository.name,
+                relative(info, base, &repository.path)?,
+                described(repository.purpose.as_deref(), repository.profile.as_deref())
+            ));
+        }
+    }
+    lines.push(format!(
+        "- Editable shared AI guidelines: `{}`",
+        relative(info, base, &info.editable_guidelines)?
+    ));
+    Ok(lines.join("\n"))
+}
+
+fn bootstrap(
+    info: &ProjectInfo,
+    base: &Path,
+    roles: &[Role],
+    role: Option<&Role>,
+) -> Result<String> {
     let sources = instruction_sources(info)
         .iter()
-        .map(|p| Ok(format!("- `{}`", relative(info, anchor, p)?)))
+        .map(|p| Ok(format!("- `{}`", relative(info, base, p)?)))
         .collect::<Result<Vec<_>>>()?
         .join("\n");
     let (selection, shared_policy) = match &info.lock {
@@ -233,12 +359,59 @@ fn bootstrap(info: &ProjectInfo, anchor: &str) -> Result<String> {
             "Local guideline edits are active immediately. Run `cspec sync` after changing skills to refresh their generated copies.",
         ),
     };
-    Ok(format!(
-        "# CretSpec workspace\n\nGenerated by CretSpec {}. Edit the source repositories; run `cspec sync` to refresh this file. Paths below are relative to this repository/workspace root.\n\n- Project definition and specification: `{}`\n- Product code: `{}`\n- Editable shared AI guidelines: `{}`\n- {selection}\n\nBefore project work, read the relevant active guidance and project rules:\n\n{sources}\n\nUse `cspec context --json` to inspect sources and `cspec skill list --json` to find skills. Follow the active specification method when changing requirements, stories, decisions or verification evidence. Use the `cspec-workspace` skill for workflow and CLI help.\n\nWhen asked to remember an approach or create a skill, infer whether it is project-specific or reusable. Ask one scope question only when intent is unclear. Project skills belong in the spec's `spec/skills/`; shared skills belong in the editable guidelines repository's `skills/`. {shared_policy} Use ordinary Git fetch/pull/commit/push in the guidelines repository to exchange changes; CretSpec does not do this automatically. Agreements belong in guidelines or project rules rather than automatically becoming skills.\n\nKeep internal context out of product commits. Generated instructions and skill copies are local and replaceable. Do not edit snapshots or generated outputs. Use the source paths returned by the CLI. These instructions do not change the host's permissions; it may need access to sibling repositories.\n",
+    let location = if role.is_some() {
+        "role folder"
+    } else {
+        "repository/workspace root"
+    };
+    let roles_text = if roles.is_empty() || role.is_some() {
+        String::new()
+    } else {
+        format!(
+            "\n\nThis context is role-neutral. For a role-specific focus, start the agent in that role's folder or run `cspec context --role <name>`. Roles: {}.",
+            roles
+                .iter()
+                .map(|r| Ok(format!(
+                    "`{}` (`{}`)",
+                    r.name,
+                    relative(info, base, &roles::entry_point(info, &r.name))?
+                )))
+                .collect::<Result<Vec<_>>>()?
+                .join(", ")
+        )
+    };
+    let mut text = format!(
+        "# CretSpec workspace\n\nGenerated by CretSpec {}. Edit the source repositories; run `cspec sync` to refresh this file. Paths below are relative to this {location}.\n\n{}\n- {selection}\n\nBefore project work, read the relevant active guidance and project rules. Project rules take precedence over shared guidance:\n\n{sources}\n\nUse `cspec context --json` to inspect sources and `cspec skill list --json` to find skills. Follow the active specification method when changing requirements, stories, decisions or verification evidence. Use the `cspec-workspace` skill for workflow and CLI help.\n\nWhen asked to remember an approach or create a skill, infer whether it is project-specific or reusable. Ask one scope question only when intent is unclear. Project skills belong in the spec's `spec/skills/`; shared skills belong in the editable guidelines repository's `skills/`. {shared_policy} Use ordinary Git fetch/pull/commit/push in the guidelines repository to exchange changes; CretSpec does not do this automatically. Agreements belong in guidelines or project rules rather than automatically becoming skills.\n\nKeep internal context out of product commits. Generated instructions and skill copies are local and replaceable. Do not edit snapshots or generated outputs. Use the source paths returned by the CLI. These instructions do not change the host's permissions; it may need access to sibling repositories.{roles_text}\n",
         env!("CARGO_PKG_VERSION"),
-        relative(info, anchor, &info.spec)?,
-        relative(info, anchor, &info.code)?,
-        relative(info, anchor, &info.editable_guidelines)?
+        repository_map(info, base)?,
+    );
+    if let Some(role) = role {
+        text.push('\n');
+        text.push_str(&role_section(info, base, role)?);
+    }
+    Ok(text)
+}
+
+fn role_section(info: &ProjectInfo, base: &Path, role: &Role) -> Result<String> {
+    let mut focus = Vec::new();
+    for name in &role.repositories {
+        let path = roles::repository_path(info, name).context("Unknown role repository")?;
+        focus.push(format!("- `{name}`: `{}`", relative(info, base, path)?));
+    }
+    let focus = if focus.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Focus repositories, in priority order:\n\n{}\n\n",
+            focus.join("\n")
+        )
+    };
+    Ok(format!(
+        "## Role: {}\n\nGenerated from `{}`. {}\n\n{focus}Role instructions are working agreements, not a security boundary: agents running as the same operating-system user share file and credential access. A host that only allows writes inside this folder needs the focus repositories as additional directories.\n\n{}\n",
+        role.name,
+        relative(info, base, &role.source)?,
+        role.description,
+        role.instructions
     ))
 }
 
@@ -249,8 +422,24 @@ fn text(value: String) -> Resource {
     }
 }
 
-fn unmanaged(base: &Path, anchor: &str, name: &str, owned: &State) -> Result<bool> {
-    Ok(files::exists(&base.join(name))? && !owned.files.contains_key(&format!("{anchor}/{name}")))
+fn unmanaged(anchor: &Anchor, name: &str, owned: &BTreeMap<PathBuf, Vec<Stamp>>) -> Result<bool> {
+    let path = anchor.base.join(name);
+    Ok(files::exists(&path)? && !owned.contains_key(&path))
+}
+
+/// Allowed fingerprints per generated path. Several keys can name one path, for example
+/// after a schema version 1 code repository is declared by name in schema version 2.
+fn owned_paths(info: &ProjectInfo, state: &State) -> Result<BTreeMap<PathBuf, Vec<Stamp>>> {
+    let mut result: BTreeMap<PathBuf, Vec<Stamp>> = BTreeMap::new();
+    for (key, stamps) in &state.files {
+        let allowed = result.entry(target(info, key)?.path).or_default();
+        for stamp in stamps {
+            if !allowed.contains(stamp) {
+                allowed.push(stamp.clone());
+            }
+        }
+    }
+    Ok(result)
 }
 
 fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resource>> {
@@ -259,6 +448,8 @@ fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resourc
         return Ok(result);
     }
     let bundles = skills::active(info)?;
+    let roles = roles::load(info)?;
+    let owned = owned_paths(info, owned)?;
     let has = |agent| info.manifest.agents.contains(&agent);
     let mut directories = Vec::new();
     if has(Agent::Codex) || (!has(Agent::Claude) && (has(Agent::Copilot) || has(Agent::Cursor))) {
@@ -267,60 +458,76 @@ fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resourc
     if has(Agent::Claude) {
         directories.push(".claude/skills");
     }
-    for (anchor, base) in anchors(info) {
-        let guidance = bootstrap(info, anchor)?;
-        let agents_name = if unmanaged(base, anchor, "AGENTS.md", owned)? {
-            "AGENTS.override.md"
-        } else {
-            "AGENTS.md"
+    for anchor in anchors(info, roles.clone()) {
+        let key = |name: &str| format!("{}/{name}", anchor.name);
+        let guidance = bootstrap(info, &anchor.base, &roles, anchor.role.as_ref())?;
+        let selected = match &anchor.role {
+            Some(role) => roles::selected(role, &bundles)?,
+            None => bundles.iter().collect(),
         };
-        if has(Agent::Codex) && unmanaged(base, anchor, "AGENTS.override.md", owned)? {
-            bail!(
-                "Existing AGENTS.override.md would hide generated instructions: {}. Preserve it and reconcile the entry point before cspec sync.",
-                base.display()
-            );
-        }
-        let instructions = if agents_name == "AGENTS.override.md" {
-            let existing = read_resource(&base.join("AGENTS.md"))?;
-            if existing.bytes.len() > 24 * 1024 {
+        if anchor.role.is_some() {
+            result.insert(key("AGENTS.md"), text(guidance.clone()));
+            if has(Agent::Claude) {
+                // Claude Code does not expand imports in parent folders' CLAUDE.md files
+                // without approval, so the role folder imports its own complete instructions.
+                result.insert(key("CLAUDE.md"), text("@AGENTS.md\n".into()));
+            }
+        } else {
+            let agents_name = if unmanaged(&anchor, "AGENTS.md", &owned)? {
+                "AGENTS.override.md"
+            } else {
+                "AGENTS.md"
+            };
+            if has(Agent::Codex) && unmanaged(&anchor, "AGENTS.override.md", &owned)? {
                 bail!(
-                    "Existing AGENTS.md is too large to combine with workspace context: {}",
-                    base.display()
+                    "Existing AGENTS.override.md would hide generated instructions: {}. Preserve it and reconcile the entry point before cspec sync.",
+                    anchor.base.display()
                 );
             }
-            format!(
-                "{}\n\n{guidance}",
-                std::str::from_utf8(&existing.bytes).context("Existing AGENTS.md must be UTF-8")?
-            )
-        } else {
-            guidance.clone()
-        };
-        result.insert(format!("{anchor}/{agents_name}"), text(instructions));
-        if has(Agent::Claude) {
-            let name = if unmanaged(base, anchor, "CLAUDE.md", owned)? {
-                "CLAUDE.local.md"
+            let instructions = if agents_name == "AGENTS.override.md" {
+                let existing = read_resource(&anchor.base.join("AGENTS.md"))?;
+                if existing.bytes.len() > 24 * 1024 {
+                    bail!(
+                        "Existing AGENTS.md is too large to combine with workspace context: {}",
+                        anchor.base.display()
+                    );
+                }
+                format!(
+                    "{}\n\n{guidance}",
+                    std::str::from_utf8(&existing.bytes)
+                        .context("Existing AGENTS.md must be UTF-8")?
+                )
             } else {
-                "CLAUDE.md"
+                guidance.clone()
             };
-            result.insert(
-                format!("{anchor}/{name}"),
-                text(format!("@{agents_name}\n")),
-            );
+            result.insert(key(agents_name), text(instructions));
+            if has(Agent::Claude) {
+                // Claude reads a tracked CLAUDE.md itself, which decides how repository
+                // instructions reach Claude. Never copy the tracked AGENTS.md for Claude.
+                let (name, content) = if unmanaged(&anchor, "CLAUDE.md", &owned)? {
+                    ("CLAUDE.local.md", guidance.clone())
+                } else if agents_name == "AGENTS.override.md" {
+                    ("CLAUDE.md", format!("@AGENTS.md\n\n{guidance}"))
+                } else {
+                    ("CLAUDE.md", "@AGENTS.md\n".into())
+                };
+                result.insert(key(name), text(content));
+            }
         }
         if has(Agent::Copilot) {
             result.insert(
-                format!("{anchor}/.github/instructions/cspec.instructions.md"),
+                key(".github/instructions/cspec.instructions.md"),
                 text(format!("---\napplyTo: '**'\n---\n\n{guidance}")),
             );
         }
         if has(Agent::Cursor) {
-            result.insert(format!("{anchor}/.cursor/rules/cspec.mdc"), text(format!("---\ndescription: CretSpec workspace sources and workflow\nalwaysApply: true\n---\n\n{guidance}")));
+            result.insert(key(".cursor/rules/cspec.mdc"), text(format!("---\ndescription: CretSpec workspace sources and workflow\nalwaysApply: true\n---\n\n{guidance}")));
         }
         for directory in &directories {
-            for bundle in &bundles {
+            for bundle in &selected {
                 for (name, resource) in &bundle.files {
                     result.insert(
-                        format!("{anchor}/{directory}/{}/{name}", bundle.skill.name),
+                        key(&format!("{directory}/{}/{name}", bundle.skill.name)),
                         resource.clone(),
                     );
                 }
@@ -330,61 +537,73 @@ fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resourc
     Ok(result)
 }
 
-fn tracked_paths(info: &ProjectInfo) -> Result<BTreeSet<String>> {
+const TRACKED_NAMES: [&str; 8] = [
+    "AGENTS.md",
+    "AGENTS.override.md",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".agents/skills",
+    ".claude/skills",
+    ".github/instructions/cspec.instructions.md",
+    ".cursor/rules/cspec.mdc",
+];
+
+fn tracked_paths<'a>(
+    info: &ProjectInfo,
+    keys: impl Iterator<Item = &'a String>,
+) -> Result<BTreeSet<PathBuf>> {
+    let mut bases = BTreeSet::new();
+    for key in keys {
+        let target = target(info, key)?;
+        if target.git && files::exists(&target.base)? {
+            bases.insert(target.base);
+        }
+    }
     let mut result = BTreeSet::new();
-    for (anchor, base) in anchors(info)
-        .into_iter()
-        .filter(|(name, _)| *name != "root")
-    {
+    for base in bases {
         let output = git::run(
-            base,
-            [
-                "ls-files",
-                "-z",
-                "--",
-                "AGENTS.md",
-                "AGENTS.override.md",
-                "CLAUDE.md",
-                "CLAUDE.local.md",
-                ".agents/skills",
-                ".claude/skills",
-                ".github/instructions/cspec.instructions.md",
-                ".cursor/rules/cspec.mdc",
-            ],
+            &base,
+            ["ls-files", "-z", "--"].into_iter().chain(TRACKED_NAMES),
         )?;
         for path in output.split('\0').filter(|s| !s.is_empty()) {
-            result.insert(format!("{anchor}/{path}"));
+            result.insert(base.join(path));
         }
     }
     Ok(result)
 }
 
 fn preflight(info: &ProjectInfo, owned: &State, next: &BTreeMap<String, Resource>) -> Result<()> {
-    let tracked = tracked_paths(info)?;
-    for key in owned
+    let keys = owned
         .files
         .keys()
         .chain(next.keys())
-        .collect::<BTreeSet<_>>()
-    {
-        let (base, _, path) = target(info, key)?;
-        check_parents(base, &path)?;
-        if tracked.contains(key) {
+        .collect::<BTreeSet<_>>();
+    let tracked = tracked_paths(info, keys.iter().copied())?;
+    let allowed = owned_paths(info, owned)?;
+    for key in keys {
+        let target = target(info, key)?;
+        if !base_present(info, &target)? {
+            if next.contains_key(key) && !target.role {
+                bail!("Missing workspace directory: {}", target.base.display());
+            }
+            continue;
+        }
+        check_parents(&target.base, &target.path)?;
+        if tracked.contains(&target.path) {
             bail!(
                 "Generated path is tracked by Git: {}. Untrack it before cspec sync; nothing was overwritten.",
-                path.display()
+                target.path.display()
             );
         }
-        if files::exists(&path)? {
-            let current = stamp(&read_resource(&path)?);
-            if !owned
-                .files
-                .get(key)
+        if files::exists(&target.path)? {
+            let current = stamp(&read_resource(&target.path)?);
+            if !allowed
+                .get(&target.path)
                 .is_some_and(|allowed| allowed.contains(&current))
             {
                 bail!(
                     "Unmanaged or locally edited generated file: {}. Preserve your changes in the source, then remove only this generated file and run cspec sync. Nothing was overwritten.",
-                    path.display()
+                    target.path.display()
                 );
             }
         }
@@ -393,40 +612,31 @@ fn preflight(info: &ProjectInfo, owned: &State, next: &BTreeMap<String, Resource
 }
 
 fn excludes(info: &ProjectInfo, keys: impl Iterator<Item = String>, write: bool) -> Result<()> {
-    let mut patterns: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut paths: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut patterns: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
+    let mut paths: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     for key in keys {
-        let (anchor, relative) = key.split_once('/').context("Invalid generated key")?;
-        if anchor == "root" {
+        let target = target(info, &key)?;
+        if !target.git {
             continue;
         }
+        let (_, relative) = key.split_once('/').context("Invalid generated key")?;
         paths
-            .entry(anchor.into())
+            .entry(target.base.clone())
             .or_default()
             .push(relative.into());
-        let pattern = if let Some((parent, _)) = relative.split_once("/skills/") {
-            let name = relative
-                .split("/skills/")
-                .nth(1)
-                .unwrap()
-                .split('/')
-                .next()
-                .unwrap();
+        let pattern = if let Some((parent, rest)) = relative.split_once("/skills/") {
+            let name = rest.split('/').next().unwrap_or_default();
             format!("/{parent}/skills/{name}/")
         } else {
             format!("/{relative}")
         };
-        patterns.entry(anchor.into()).or_default().insert(pattern);
+        patterns.entry(target.base).or_default().insert(pattern);
     }
-    for (anchor, patterns) in patterns {
-        let base = anchors(info)
-            .into_iter()
-            .find(|(a, _)| *a == anchor)
-            .unwrap()
-            .1;
-        let path = files::absolute(
-            base.join(git::run(base, ["rev-parse", "--git-path", "info/exclude"])?),
-        )?;
+    for (base, patterns) in patterns {
+        let path = files::absolute(base.join(git::run(
+            &base,
+            ["rev-parse", "--git-path", "info/exclude"],
+        )?))?;
         let previous = if files::exists(&path)? {
             String::from_utf8(read_resource(&path)?.bytes)?
         } else {
@@ -455,9 +665,9 @@ fn excludes(info: &ProjectInfo, keys: impl Iterator<Item = String>, write: bool)
             )?;
             file.sync_all()?;
         }
-        let input = format!("{}\0", paths[&anchor].join("\0"));
+        let input = format!("{}\0", paths[&base].join("\0"));
         let ignored = git::run_input(
-            base,
+            &base,
             &[
                 "check-ignore",
                 "--stdin",
@@ -469,7 +679,7 @@ fn excludes(info: &ProjectInfo, keys: impl Iterator<Item = String>, write: bool)
             input.as_bytes(),
         )?;
         let fields: Vec<_> = ignored.trim_end_matches('\0').split('\0').collect();
-        if fields.len() != paths[&anchor].len() * 4 {
+        if fields.len() != paths[&base].len() * 4 {
             bail!(
                 "Git did not report every generated path in {}",
                 base.display()
@@ -505,6 +715,31 @@ fn write_resource(path: &Path, resource: &Resource) -> Result<()> {
     file.as_file().sync_all()?;
     file.persist(path)?;
     Ok(())
+}
+
+/// Creates a role folder below the project root without following links.
+fn prepare_role_base(info: &ProjectInfo, base: &Path) -> Result<()> {
+    let roles = info.project_root.join(ROLES_DIRECTORY);
+    for directory in [&roles, &base.to_path_buf()] {
+        if files::exists(directory)? {
+            files::directory(directory)?;
+        } else {
+            fs::create_dir(directory)?;
+        }
+    }
+    Ok(())
+}
+
+/// Removes directories of a removed role output once they are empty.
+fn remove_empty_role_directories(info: &ProjectInfo, path: &Path) {
+    let roles = info.project_root.join(ROLES_DIRECTORY);
+    let mut current = path.parent();
+    while let Some(directory) = current {
+        if !directory.starts_with(&roles) || fs::remove_dir(directory).is_err() {
+            break;
+        }
+        current = directory.parent();
+    }
 }
 
 pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
@@ -551,15 +786,21 @@ pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
         unchanged: 0,
         compatibility_notice: compatibility_notice(info),
     };
+    let allowed = owned_paths(info, &pending)?;
+    let mut planned = BTreeSet::new();
     for (key, resource) in &next {
-        let (base, _, path) = target(info, key)?;
-        check_parents(base, &path)?;
-        if files::exists(&path)? {
-            let current = stamp(&read_resource(&path)?);
-            if !pending.files[key].contains(&current) {
+        let target = target(info, key)?;
+        if target.role {
+            prepare_role_base(info, &target.base)?;
+        }
+        check_parents(&target.base, &target.path)?;
+        planned.insert(target.path.clone());
+        if files::exists(&target.path)? {
+            let current = stamp(&read_resource(&target.path)?);
+            if !allowed[&target.path].contains(&current) {
                 bail!(
                     "Generated file changed during sync: {}. Preserve it before retrying.",
-                    path.display()
+                    target.path.display()
                 );
             }
             if current == stamp(resource) {
@@ -567,18 +808,28 @@ pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
                 continue;
             }
         }
-        write_resource(&path, resource)?;
+        write_resource(&target.path, resource)?;
         result.written += 1;
     }
+    let previous = owned_paths(info, &owned)?;
     for key in owned.files.keys().filter(|key| !next.contains_key(*key)) {
-        let (base, _, path) = target(info, key)?;
-        check_parents(base, &path)?;
-        if files::exists(&path)? {
-            if !owned.files[key].contains(&stamp(&read_resource(&path)?)) {
-                bail!("Generated file changed during sync: {}", path.display());
+        let target = target(info, key)?;
+        if planned.contains(&target.path) || !base_present(info, &target)? {
+            continue;
+        }
+        check_parents(&target.base, &target.path)?;
+        if files::exists(&target.path)? {
+            if !previous[&target.path].contains(&stamp(&read_resource(&target.path)?)) {
+                bail!(
+                    "Generated file changed during sync: {}",
+                    target.path.display()
+                );
             }
-            fs::remove_file(&path)?;
+            fs::remove_file(&target.path)?;
             result.removed += 1;
+            if target.role {
+                remove_empty_role_directories(info, &target.path);
+            }
         }
     }
     files::write_json(&local.join(STATE), &committed)?;
@@ -593,6 +844,28 @@ pub fn compatibility_notice(info: &ProjectInfo) -> Option<String> {
         .then(|| "Both .agents/skills and .claude/skills are prepared. Compatibility readers may show duplicate skills; select integrations in project.json if needed.".into())
 }
 
+/// Explains why a Codex override copy is stale when the tracked AGENTS.md changed.
+fn stale_cause(path: &Path) -> String {
+    if path
+        .file_name()
+        .is_none_or(|name| name != "AGENTS.override.md")
+    {
+        return String::new();
+    }
+    let tracked = path.with_file_name("AGENTS.md");
+    match (fs::read(&tracked), fs::read(path)) {
+        (Ok(tracked), Ok(copy)) if !copy.starts_with(&tracked) => format!(
+            " The repository's tracked {} changed since the last sync; Codex reads the outdated copy until then.",
+            tracked_name(path)
+        ),
+        _ => String::new(),
+    }
+}
+
+fn tracked_name(path: &Path) -> String {
+    path.with_file_name("AGENTS.md").display().to_string()
+}
+
 pub fn check(info: &ProjectInfo) -> Result<String> {
     if files::exists(&workspace::local_directory(&info.spec, false)?.join(PENDING))? {
         bail!("Agent synchronization was interrupted. Run cspec sync to finish it.");
@@ -600,17 +873,18 @@ pub fn check(info: &ProjectInfo) -> Result<String> {
     let owned = ownership(info)?;
     let next = desired(info, &owned)?;
     preflight(info, &owned, &next)?;
-    if owned.files.len() != next.len() {
-        bail!("Agent integrations are stale or missing. Run cspec sync.");
-    }
     for (key, resource) in &next {
-        let (_, _, path) = target(info, key)?;
+        let path = target(info, key)?.path;
         if !files::exists(&path)? || stamp(&read_resource(&path)?) != stamp(resource) {
             bail!(
-                "Agent integration is missing or stale: {}. Run cspec sync.",
-                path.display()
+                "Agent integration is missing or stale: {}.{} Run cspec sync.",
+                path.display(),
+                stale_cause(&path)
             );
         }
+    }
+    if owned.files.keys().ne(next.keys()) {
+        bail!("Agent integrations are stale or missing. Run cspec sync.");
     }
     excludes(info, next.keys().cloned(), false)?;
     Ok(format!(
@@ -619,17 +893,91 @@ pub fn check(info: &ProjectInfo) -> Result<String> {
     ))
 }
 
-pub fn context(info: &ProjectInfo) -> Result<Value> {
+/// Codex reads at most 32 KiB of project instructions by default (`project_doc_max_bytes`).
+const CODEX_INSTRUCTION_LIMIT: usize = 32 * 1024;
+
+/// Reports generated Codex entry points that exceed the default instruction size.
+pub fn size_warnings(info: &ProjectInfo) -> Vec<String> {
+    let Ok(next) = ownership(info).and_then(|owned| desired(info, &owned)) else {
+        return Vec::new();
+    };
+    next.iter()
+        .filter(|(key, resource)| {
+            (key.ends_with("/AGENTS.md") || key.ends_with("/AGENTS.override.md"))
+                && resource.bytes.len() > CODEX_INSTRUCTION_LIMIT
+        })
+        .filter_map(|(key, resource)| {
+            let path = target(info, key).ok()?.path;
+            Some(format!(
+                "{} is {} KiB; Codex reads at most 32 KiB of project instructions by default",
+                path.display(),
+                resource.bytes.len().div_ceil(1024)
+            ))
+        })
+        .collect()
+}
+
+fn role_details(info: &ProjectInfo, role: &Role) -> Result<Value> {
+    let bundles = skills::active(info)?;
+    let skills: Vec<_> = roles::selected(role, &bundles)?
+        .into_iter()
+        .map(|b| b.skill.name.clone())
+        .collect();
+    let mut repositories = Vec::new();
+    let mut directories = Vec::new();
+    for name in &role.repositories {
+        let path = roles::repository_path(info, name).context("Unknown role repository")?;
+        let purpose = if info.spec_repository.name == *name {
+            info.spec_repository.purpose.clone()
+        } else {
+            info.repositories
+                .iter()
+                .find(|r| &r.name == name)
+                .and_then(|r| r.purpose.clone())
+        };
+        repositories.push(json!({"name":name,"path":path,"purpose":purpose}));
+        directories.push(path.to_owned());
+    }
+    Ok(json!({
+        "name":role.name, "description":role.description, "source":role.source,
+        "entryPoint":roles::entry_point(info, &role.name), "repositories":repositories,
+        "additionalDirectories":directories, "skills":skills, "instructions":role.instructions,
+    }))
+}
+
+pub fn context(info: &ProjectInfo, role: Option<&str>) -> Result<Value> {
     let status = match check(info) {
         Ok(detail) => json!({"ready":true,"detail":detail}),
         Err(error) => json!({"ready":false,"detail":format!("{error:#}")}),
     };
-    Ok(json!({
+    let (roles, role_errors) = match roles::load(info) {
+        Ok(roles) => (roles, Vec::new()),
+        Err(error) => (Vec::new(), vec![format!("{error:#}")]),
+    };
+    let mut value = json!({
         "schemaVersion":1, "cliVersion":env!("CARGO_PKG_VERSION"), "project":info,
         "instructionSources":instruction_sources(info),
         "skillSources":{"project":info.spec.join("spec/skills"), "shared":info.editable_guidelines.join("skills"), "activeShared":info.active_guidelines.join("skills")},
         "skills":skills::inventory(info)?, "integration":status, "compatibilityNotice":compatibility_notice(info),
-    }))
+        "roleSource":roles::source_directory(info),
+        "roles":roles.iter().map(|r| json!({"name":r.name,"description":r.description,"entryPoint":roles::entry_point(info, &r.name)})).collect::<Vec<_>>(),
+        "roleErrors":role_errors,
+        "repositoryStates":workspace::repository_states(info)?,
+        "undeclaredRepositories":workspace::undeclared_repositories(info)?,
+    });
+    if let Some(name) = role {
+        let role = roles::load(info)?
+            .into_iter()
+            .find(|r| r.name == name)
+            .with_context(|| {
+                format!(
+                    "Unknown role: {name}. Roles are defined in {}",
+                    roles::source_directory(info).display()
+                )
+            })?;
+        value["role"] = role_details(info, &role)?;
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

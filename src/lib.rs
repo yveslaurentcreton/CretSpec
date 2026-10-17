@@ -5,5 +5,6 @@ pub mod git;
 pub mod manifest;
 pub mod operations;
 pub mod repository;
+pub mod roles;
 pub mod skills;
 pub mod workspace;

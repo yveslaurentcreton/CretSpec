@@ -14,6 +14,13 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 | Destination already exists | Choose a new outer destination, or attach correctly arranged existing clones. |
 | No spec or multiple specs found | Pass the intended spec directory explicitly. |
 | Code or guidelines source mismatch | Inspect Git origins and the manifest. Correct the intended definition or use the right clone. |
+| Declared repository missing | Clone it with Git at its declared path, or run `cspec project attach <spec> --clone-missing`. |
+| Undeclared repository warning | Declare the repository in `project.json` if it belongs to the workspace, or move it out of the project root. |
+| Origin contains a password | Remove it with `git remote set-url` and use your Git credential manager. A user name alone is accepted. |
+| Existing `spec/` stops initialization | Add `--existing-spec` to keep it and write only `project.json`. |
+| Invalid or unknown role | Check the role file's frontmatter, repository names and skill names, then run `cspec sync`. |
+| Role cannot write to a repository | The role folder is the agent's working directory. Add the focus repositories as additional directories in your host; `cspec context --role <name>` lists them. |
+| Codex instructions exceed 32 KiB | Shorten the repository's `AGENTS.md` or the role instructions, or raise Codex's `project_doc_max_bytes`. |
 | Local context or snapshot missing | Run `cspec project info` to prepare it. |
 | Locked commit unavailable | Fetch tags in the editable guidelines clone. Check that the locked ref was published. |
 | Ref differs from the lock | Investigate a moved tag or inconsistent manifest/lock. Restore the agreed pair before adopting a different version. |

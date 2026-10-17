@@ -14,7 +14,7 @@ cspec project doctor
 cspec project open
 ```
 
-Open your agent in the outer workspace or one of its three repositories. CretSpec prepares entry points at each location. Allow access to sibling repositories when your host requires it. You can ask:
+Open your agent in the outer workspace or one of its repositories. CretSpec prepares entry points at each location. Allow access to sibling repositories when your host requires it. For conversations with a specific focus, such as operations or development, start the agent in a [role folder](/CretSpec/guides/workspaces/#select-a-role). You can ask:
 
 > Read this project's active guidelines and specification, then explain the next agreed story.
 
@@ -64,7 +64,7 @@ Omit it to prepare all four integrations. Use `[]` to disable generated integrat
 | Agent | Instruction entry point | Skill directory |
 | --- | --- | --- |
 | Codex | `AGENTS.md`, or a generated `AGENTS.override.md` preserving existing instructions | `.agents/skills/` |
-| Claude Code | `CLAUDE.md`, or `CLAUDE.local.md` alongside an existing file | `.claude/skills/` |
+| Claude Code | `CLAUDE.md`, or `CLAUDE.local.md` with workspace context alongside an existing file | `.claude/skills/` |
 | GitHub Copilot in VS Code | `.github/instructions/cspec.instructions.md` | Shares a generated skills directory |
 | Cursor | `.cursor/rules/cspec.mdc` | Shares a generated skills directory |
 
