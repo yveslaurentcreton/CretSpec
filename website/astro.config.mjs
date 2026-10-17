@@ -31,6 +31,7 @@ export default defineConfig({
         { label: 'Start a specification', slug: 'guides/initialize' },
         { label: 'Work with guidelines', slug: 'guides/guidelines' },
         { label: 'Move or attach a project', slug: 'guides/existing-projects' },
+        { label: 'Combine repositories and roles', slug: 'guides/workspaces' },
         { label: 'Use your own Git hosting', slug: 'guides/self-hosting' },
         { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
       ] },

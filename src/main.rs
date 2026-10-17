@@ -21,6 +21,9 @@ enum Commands {
         location: Option<PathBuf>,
         #[arg(long)]
         json: bool,
+        /// Include a role's instructions, focus repositories and skills.
+        #[arg(long, value_name = "NAME")]
+        role: Option<String>,
     },
     /// Refresh local instructions and skills from the current project definition.
     Sync {
@@ -82,8 +85,15 @@ enum ProjectCommand {
         directory: PathBuf,
         #[arg(long)]
         name: String,
+        /// One code repository (schema version 1). Omit to declare repositories by name.
+        #[arg(long, conflicts_with = "repositories")]
+        code: Option<String>,
+        /// A repository as <path> (an existing sibling clone) or <path>=<url>. Repeatable.
+        #[arg(long = "repository", value_name = "PATH[=URL]")]
+        repositories: Vec<String>,
+        /// Keep an existing spec/ directory and write only the definition.
         #[arg(long)]
-        code: String,
+        existing_spec: bool,
         #[arg(long)]
         guidelines: String,
         #[arg(long = "ref")]
@@ -91,8 +101,9 @@ enum ProjectCommand {
         /// Pin a committed guidelines version instead of using the working tree.
         #[arg(long = "lock", requires = "reference")]
         pinned: bool,
+        /// Technology profile: required with --code; otherwise the spec repository's profile.
         #[arg(long)]
-        profile: String,
+        profile: Option<String>,
     },
     /// Check project health without fetching or changing files.
     Doctor {
@@ -105,8 +116,16 @@ enum ProjectCommand {
         spec: String,
         destination: Option<PathBuf>,
     },
-    /// Attach correctly placed existing code and spec repositories.
-    Attach { code: PathBuf, spec: PathBuf },
+    /// Include existing clones in place: attach <SPEC>, or the legacy attach <CODE> <SPEC>.
+    Attach {
+        #[arg(value_name = "SPEC or CODE")]
+        first: PathBuf,
+        #[arg(value_name = "SPEC")]
+        second: Option<PathBuf>,
+        /// Clone declared repositories that are missing at their paths.
+        #[arg(long)]
+        clone_missing: bool,
+    },
     /// Show the project definition and prepare missing local context.
     Info { location: Option<PathBuf> },
     /// Generate and open an editor workspace inside the spec.
@@ -150,22 +169,68 @@ fn progress(message: &str) {
     eprintln!("{message}");
 }
 
+fn repository_lines(info: &workspace::ProjectInfo) -> String {
+    if info.manifest.code.is_some() {
+        return info
+            .repositories
+            .iter()
+            .map(|r| format!("Code: {}", r.path.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    std::iter::once(format!("Spec repository: {}", info.spec_repository.name))
+        .chain(
+            info.repositories
+                .iter()
+                .map(|r| format!("Repository {}: {}", r.name, r.path.display())),
+        )
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn print_role(role: &serde_json::Value) {
+    let text = |value: &serde_json::Value| value.as_str().unwrap_or_default().to_owned();
+    let list = |value: &serde_json::Value, field: Option<&str>| {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|item| match field {
+                Some(field) => text(&item[field]),
+                None => text(item),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    println!(
+        "\nRole {}: {}\nEntry point: {}\nFocus repositories: {}\nAdditional directories for hosts that restrict writes: {}\nSkills: {}\n\n{}",
+        text(&role["name"]),
+        text(&role["description"]),
+        text(&role["entryPoint"]),
+        list(&role["repositories"], Some("name")),
+        list(&role["additionalDirectories"], None),
+        list(&role["skills"], None),
+        text(&role["instructions"])
+    );
+}
+
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Context {
             location: value,
             json,
+            role,
         } => {
             let info = workspace::info(&location(value)?, false, &progress)?;
-            let context = agents::context(&info)?;
+            let context = agents::context(&info, role.as_deref())?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&context)?);
             } else {
                 println!(
-                    "{}\nSpec: {}\nCode: {}\nShared skill source: {}\nGuidelines: {:?}, {} ({})\nAgent context: {}",
+                    "{}\nSpec: {}\n{}\nShared skill source: {}\nGuidelines: {:?}, {} ({})\nAgent context: {}",
                     info.manifest.name,
                     info.spec.display(),
-                    info.code.display(),
+                    repository_lines(&info),
                     info.editable_guidelines.join("skills").display(),
                     info.guidelines.mode,
                     info.manifest.guidelines.reference,
@@ -174,6 +239,13 @@ fn execute(cli: Cli) -> Result<()> {
                         .as_str()
                         .unwrap_or_default()
                 );
+                if let Some(roles) = context["roles"].as_array().filter(|r| !r.is_empty()) {
+                    let names: Vec<_> = roles.iter().filter_map(|r| r["name"].as_str()).collect();
+                    println!("Roles: {}", names.join(", "));
+                }
+                if role.is_some() {
+                    print_role(&context["role"]);
+                }
             }
         }
         Commands::Sync {
@@ -256,6 +328,8 @@ fn execute(cli: Cli) -> Result<()> {
                 directory,
                 name,
                 code,
+                repositories,
+                existing_spec,
                 guidelines,
                 reference,
                 pinned,
@@ -264,11 +338,13 @@ fn execute(cli: Cli) -> Result<()> {
                 let spec = operations::initialize(operations::InitOptions {
                     directory: &directory,
                     name: &name,
-                    code: &code,
+                    code: code.as_deref(),
                     guidelines: &guidelines,
                     reference: reference.as_deref(),
                     pinned,
-                    profile: &profile,
+                    profile: profile.as_deref(),
+                    repositories: &repositories,
+                    existing_spec,
                 })?;
                 println!(
                     "Specification initialized: {}\nReview the spec, then commit and push it before cloning from its remote.",
@@ -310,19 +386,49 @@ fn execute(cli: Cli) -> Result<()> {
                     &progress,
                 )?;
                 println!(
-                    "{} is ready.\nProject: {}\nSpec: {}\nCode: {}\nEditable guidelines: {}\nActive guidelines: {} ({})",
+                    "{} is ready.\nProject: {}\nSpec: {}\n{}\nEditable guidelines: {}\nActive guidelines: {} ({})",
                     info.manifest.name,
                     info.project_root.display(),
                     info.spec.display(),
-                    info.code.display(),
+                    repository_lines(&info),
                     info.editable_guidelines.display(),
                     info.manifest.guidelines.reference,
                     &info.guidelines.commit[..12]
                 );
             }
-            ProjectCommand::Attach { code, spec } => {
-                let info = workspace::attach(&code, &spec, &progress)?;
+            ProjectCommand::Attach {
+                first,
+                second,
+                clone_missing,
+            } => {
+                let (code, spec) = match second {
+                    Some(spec) => (Some(first), spec),
+                    None => (None, first),
+                };
+                let info = workspace::attach(code.as_deref(), &spec, clone_missing, &progress)?;
                 println!("Project ready: {}", info.project_root.display());
+                for state in workspace::repository_states(&info)? {
+                    println!(
+                        "{}: {} ({}{})",
+                        state.name,
+                        state.path.display(),
+                        state
+                            .branch
+                            .map(|b| format!("branch {b}"))
+                            .unwrap_or_else(|| "detached HEAD".into()),
+                        if state.dirty {
+                            "; local changes preserved"
+                        } else {
+                            ""
+                        }
+                    );
+                }
+                for path in workspace::undeclared_repositories(&info)? {
+                    println!(
+                        "Warning: undeclared Git repository in the project root: {}",
+                        path.display()
+                    );
+                }
             }
             ProjectCommand::Info { location: value } => {
                 let info = workspace::info(&location(value)?, true, &progress)?;

@@ -3,7 +3,7 @@ title: Clone your first project
 description: Go from one spec repository to a complete local project.
 ---
 
-Start with [CretSpec and Git installed](/CretSpec/start/install/), Git access to all three repositories, and a spec containing `project.json` and `spec/` (plus `guidelines.lock.json` if pinned). If you do not have that spec yet, [initialize one](/CretSpec/guides/initialize/).
+Start with [CretSpec and Git installed](/CretSpec/start/install/), Git access to all of the project's repositories, and a spec containing `project.json` and `spec/` (plus `guidelines.lock.json` if pinned). If you do not have that spec yet, [initialize one](/CretSpec/guides/initialize/).
 
 ## 1. Choose your projects directory
 

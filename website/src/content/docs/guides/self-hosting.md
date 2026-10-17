@@ -3,7 +3,7 @@ title: Use your own Git hosting
 description: Use CretSpec with private repositories, another Git server or local sources.
 ---
 
-CretSpec runs locally; there is no CretSpec service to deploy. Host your three Git repositories wherever your team normally hosts code. Private repositories work through your existing Git authentication.
+CretSpec runs locally; there is no CretSpec service to deploy. Host your Git repositories wherever your team normally hosts code. Private repositories work through your existing Git authentication.
 
 Supported sources include HTTPS, SSH URLs, SCP-style SSH references and local Git paths. For example:
 

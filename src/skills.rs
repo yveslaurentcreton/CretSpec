@@ -62,27 +62,31 @@ pub fn valid_name(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
 }
 
-fn description_valid(description: &str) -> bool {
+pub fn description_valid(description: &str) -> bool {
     !description.trim().is_empty() && description.chars().count() <= 1024
 }
 
-fn header(bytes: &[u8], expected: &str, scope: Scope, source: Option<PathBuf>) -> Result<Skill> {
-    let text = std::str::from_utf8(bytes).context("SKILL.md must be UTF-8")?;
+/// Splits a Markdown document into its YAML frontmatter and body.
+pub fn frontmatter(bytes: &[u8], document: &str) -> Result<(String, String)> {
+    let text = std::str::from_utf8(bytes).with_context(|| format!("{document} must be UTF-8"))?;
     let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
-    let yaml = text
-        .strip_prefix("---\n")
+    text.strip_prefix("---\n")
         .and_then(|s| {
             s.split_once("\n---")
                 .filter(|(_, rest)| rest.is_empty() || rest.starts_with('\n'))
-                .map(|(y, _)| y)
+                .map(|(yaml, body)| (yaml.to_owned(), body.trim_start_matches('\n').to_owned()))
         })
-        .context("SKILL.md needs YAML frontmatter between --- lines")?;
+        .with_context(|| format!("{document} needs YAML frontmatter between --- lines"))
+}
+
+fn header(bytes: &[u8], expected: &str, scope: Scope, source: Option<PathBuf>) -> Result<Skill> {
+    let (yaml, _) = frontmatter(bytes, "SKILL.md")?;
     #[derive(Deserialize)]
     struct Header {
         name: String,
         description: String,
     }
-    let parsed: Header = serde_yaml_ng::from_str(yaml).context("Invalid skill frontmatter")?;
+    let parsed: Header = serde_yaml_ng::from_str(&yaml).context("Invalid skill frontmatter")?;
     if !valid_name(&parsed.name) || parsed.name != expected {
         bail!(
             "Skill name must match its directory and use 1-64 lowercase letters, digits or single hyphens: {expected}"
