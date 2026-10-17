@@ -1,6 +1,8 @@
 use crate::{
     files, git,
-    manifest::{self, Guidelines, GuidelinesMode, Lock, Manifest, Source},
+    manifest::{
+        self, Guidelines, GuidelinesMode, Lock, Manifest, Repository, Source, SpecRepository,
+    },
     repository, workspace,
 };
 use anyhow::{Context, Result, bail};
@@ -14,32 +16,124 @@ use std::{
 pub struct InitOptions<'a> {
     pub directory: &'a Path,
     pub name: &'a str,
-    pub code: &'a str,
+    /// A single code repository selects schema version 1.
+    pub code: Option<&'a str>,
     pub guidelines: &'a str,
     pub reference: Option<&'a str>,
     pub pinned: bool,
-    pub profile: &'a str,
+    pub profile: Option<&'a str>,
+    /// Schema version 2 repositories as `<path>` (an existing sibling clone) or `<path>=<url>`.
+    pub repositories: &'a [String],
+    /// Keep an existing spec/ directory and write only the definition.
+    pub existing_spec: bool,
+}
+
+fn declared_repository(spec: &Path, value: &str) -> Result<Repository> {
+    let (path, url) = match value.split_once('=') {
+        Some((path, url)) => (path, Some(url)),
+        None => (value, None),
+    };
+    let name = path.to_ascii_lowercase();
+    if !crate::skills::valid_name(&name) {
+        bail!(
+            "Repository directory {path} needs a name of 1-64 letters, digits or single hyphens. Rename it, or edit project.json after initialization."
+        );
+    }
+    let url = match url {
+        Some(url) => repository::without_user(url)?,
+        None => {
+            let sibling = spec.parent().context("Spec has no parent")?.join(path);
+            git::root(&sibling).with_context(|| {
+                format!(
+                    "No existing clone at {}. Pass {path}=<url> to declare a repository that is not cloned yet",
+                    sibling.display()
+                )
+            })?;
+            let origin =
+                git::run(&sibling, ["remote", "get-url", "origin"]).with_context(|| {
+                    format!(
+                        "{} has no origin remote. Pass {path}=<url>",
+                        sibling.display()
+                    )
+                })?;
+            repository::without_user(&origin)?
+        }
+    };
+    Ok(Repository {
+        path: (path != name).then(|| path.to_owned()),
+        name,
+        url,
+        purpose: None,
+        profile: None,
+    })
 }
 
 pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
     let spec = git::root(&files::absolute(options.directory)?)?;
     for name in ["project.json", "guidelines.lock.json", "spec"] {
-        if files::exists(&spec.join(name))? {
+        if name == "spec" && options.existing_spec {
+            files::directory(&spec.join(name))
+                .context("--existing-spec requires an existing spec/ directory")?;
+        } else if files::exists(&spec.join(name))? {
             bail!(
-                "Initialization would overwrite {}. Use an uninitialized spec repository.",
-                spec.join(name).display()
+                "Initialization would overwrite {}. Use an uninitialized spec repository{}.",
+                spec.join(name).display(),
+                if name == "spec" {
+                    ", or keep the existing specification with --existing-spec"
+                } else {
+                    ""
+                }
             );
         }
     }
     if options.pinned && options.reference.is_none() {
         bail!("Pinned initialization requires --ref.");
     }
+    let (schema_version, code, profile, spec_repository, repositories) = match options.code {
+        Some(code) => {
+            if !options.repositories.is_empty() {
+                bail!(
+                    "Use either --code for one code repository or --repository for named repositories."
+                );
+            }
+            let profile = options
+                .profile
+                .context("A single code repository requires --profile.")?;
+            (
+                1,
+                Some(Source {
+                    repository: code.into(),
+                }),
+                Some(profile.into()),
+                None,
+                None,
+            )
+        }
+        None => {
+            let repositories = options
+                .repositories
+                .iter()
+                .map(|value| declared_repository(&spec, value))
+                .collect::<Result<Vec<_>>>()?;
+            let directory = spec
+                .file_name()
+                .context("Spec has no directory name")?
+                .to_string_lossy()
+                .to_ascii_lowercase();
+            let spec_repository = SpecRepository {
+                name: crate::skills::valid_name(&directory).then_some(directory),
+                purpose: None,
+                profile: options.profile.map(Into::into),
+            };
+            (2, None, None, Some(spec_repository), Some(repositories))
+        }
+    };
     let mut definition = Manifest {
-        schema_version: 1,
+        schema_version,
         name: options.name.into(),
-        code: Source {
-            repository: options.code.into(),
-        },
+        code,
+        spec_repository,
+        repositories,
         guidelines: Guidelines {
             repository: options.guidelines.into(),
             reference: options.reference.unwrap_or("HEAD").into(),
@@ -49,7 +143,7 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
                 GuidelinesMode::WorkingTree
             }),
         },
-        profile: options.profile.into(),
+        profile,
         agents: manifest::default_agents(),
     };
     // Validate user inputs before fetching any repository.
@@ -61,7 +155,6 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
     manifest::validate(&definition, lock.as_ref())?;
     let source = repository::origin(&spec)?;
     let layout = workspace::paths(&spec, &definition, &source)?;
-    repository::resolve(options.code, &source)?;
     let temporary = tempfile::Builder::new().prefix("cspec-init-").tempdir()?;
     let guidance = temporary.path().join("guidelines");
     git::clone(&layout.guidelines_source, &guidance)?;
@@ -85,23 +178,29 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
         git::run(&guidance, ["switch", &definition.guidelines.reference])?;
     }
     manifest::validate(&definition, lock.as_ref())?;
-    workspace::validate_profile(&guidance, options.profile)?;
-    let template = guidance.join("templates/spec/spec");
+    workspace::validate_profiles(&guidance, &definition)?;
     let mut content = Vec::new();
-    collect_template(&template, &template, &mut content)?;
-    if content.is_empty() {
+    if !options.existing_spec {
+        let template = guidance.join("templates/spec/spec");
+        collect_template(&template, &template, &mut content)?;
+    }
+    if content.is_empty() && !options.existing_spec {
         bail!("The selected guidelines contain no specification templates.");
     }
-    for required in [
-        "vision.md",
-        "scope.md",
-        "requirements.md",
-        "architecture.md",
-        "decisions.md",
-        "roadmap.md",
-        "acceptance.md",
-        "project-rules.md",
-    ] {
+    for required in (!options.existing_spec)
+        .then_some([
+            "vision.md",
+            "scope.md",
+            "requirements.md",
+            "architecture.md",
+            "decisions.md",
+            "roadmap.md",
+            "acceptance.md",
+            "project-rules.md",
+        ])
+        .into_iter()
+        .flatten()
+    {
         if !content.iter().any(|(path, _)| path == Path::new(required)) {
             bail!("Missing required specification template: {required}");
         }
@@ -117,7 +216,9 @@ pub fn initialize(options: InitOptions<'_>) -> Result<PathBuf> {
         fs::write(target, bytes)?;
     }
     // All source material is validated before creating any definition file.
-    fs::rename(&staged_spec, spec.join("spec"))?;
+    if !options.existing_spec {
+        fs::rename(&staged_spec, spec.join("spec"))?;
+    }
     let result = (|| -> Result<()> {
         write_new_json(&spec.join("project.json"), &definition)?;
         if let Some(lock) = &lock {
@@ -228,6 +329,15 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
                 ok,
                 detail,
             });
+            checks.push(repositories_check(&info));
+            let warnings = crate::agents::size_warnings(&info);
+            if !warnings.is_empty() {
+                checks.push(Check {
+                    name: "Agent instruction size".into(),
+                    ok: true,
+                    detail: format!("Warning: {}", warnings.join("; ")),
+                });
+            }
             if info.guidelines.mode == GuidelinesMode::WorkingTree {
                 let state = &info.guidelines;
                 let mut notices = Vec::new();
@@ -280,6 +390,42 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
         }),
     }
     checks
+}
+
+fn repositories_check(info: &workspace::ProjectInfo) -> Check {
+    let declared = format!(
+        "{} declared {} present with matching origins",
+        info.repositories.len(),
+        if info.repositories.len() == 1 {
+            "repository is"
+        } else {
+            "repositories are"
+        }
+    );
+    match workspace::undeclared_repositories(info) {
+        Ok(undeclared) if undeclared.is_empty() => Check {
+            name: "Repositories".into(),
+            ok: true,
+            detail: declared,
+        },
+        Ok(undeclared) => Check {
+            name: "Repositories".into(),
+            ok: true,
+            detail: format!(
+                "{declared}. Warning: undeclared Git repositories in the project root: {}. Declare them in project.json if they belong to this workspace.",
+                undeclared
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        },
+        Err(error) => Check {
+            name: "Repositories".into(),
+            ok: false,
+            detail: format!("{error:#}"),
+        },
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -362,7 +508,7 @@ pub fn unlock(start: &Path, preview: bool) -> Result<workspace::ProjectInfo> {
     definition.guidelines.mode = Some(GuidelinesMode::WorkingTree);
     manifest::validate(&definition, None)?;
     workspace::validate_branch(&info.editable_guidelines, branch)?;
-    workspace::validate_profile(&info.editable_guidelines, &definition.profile)?;
+    workspace::validate_profiles(&info.editable_guidelines, &definition)?;
     let mut proposed = info.clone();
     proposed.manifest = definition.clone();
     proposed.lock = None;

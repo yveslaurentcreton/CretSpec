@@ -1,15 +1,17 @@
 ---
 title: How it works
-description: Understand the three repositories, local guidelines and optional pinning.
+description: Understand the repositories, local guidelines and optional pinning.
 ---
 
-CretSpec connects three ordinary Git repositories. The specification is the starting point.
+CretSpec connects ordinary Git repositories. The specification is the starting point.
 
 | Repository | Responsibility |
 | --- | --- |
 | Project spec | Product intent, requirements, decisions and project definition |
 | Product code | Buildable, testable product and public documentation |
 | AI guidelines | Shared development principles, profiles, skills and specification templates |
+
+A workspace can [combine several repositories](/CretSpec/guides/workspaces/), such as an application and its infrastructure, and the specification can live inside a code repository.
 
 `project.json` belongs in the spec. It names the code and guidelines sources, a guidelines branch and a profile. New projects use that editable guidelines checkout directly. An optional `guidelines.lock.json` selects an exact commit instead.
 
@@ -33,6 +35,6 @@ CretSpec initializes Markdown from templates and prepares instructions and disco
 
 ## Portable by construction
 
-Commands discover the spec from the enclosing project and sibling repositories. No personal project registry is needed. Move the whole outer directory to another location and keep the three repositories together. Git origins continue to identify their sources.
+Commands discover the spec from the enclosing project and sibling repositories. No personal project registry is needed. Move the whole outer directory to another location and keep the repositories together. Git origins continue to identify their sources.
 
 Public product builds do not need access to private specifications or guidelines. Keep internal planning in the spec and document the public product in its code repository.

@@ -1,6 +1,6 @@
 use crate::{
     files, git,
-    manifest::{self, GuidelinesMode, Lock, Manifest},
+    manifest::{self, GuidelinesMode, LEGACY_CODE_NAME, Lock, Manifest, ROLES_DIRECTORY},
     repository,
 };
 use anyhow::{Context, Result, bail};
@@ -20,12 +20,39 @@ pub type Progress<'a> = &'a dyn Fn(&str);
 pub struct ProjectInfo {
     pub project_root: PathBuf,
     pub spec: PathBuf,
-    pub code: PathBuf,
+    /// The code repository of a schema version 1 definition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<PathBuf>,
+    pub spec_repository: SpecRepositoryInfo,
+    /// Declared repositories other than the spec repository.
+    pub repositories: Vec<RepositoryInfo>,
     pub editable_guidelines: PathBuf,
     pub active_guidelines: PathBuf,
     pub manifest: Manifest,
     pub lock: Option<Lock>,
     pub guidelines: GuidelinesState,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecRepositoryInfo {
+    pub name: String,
+    pub path: PathBuf,
+    pub purpose: Option<String>,
+    pub profile: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryInfo {
+    pub name: String,
+    pub path: PathBuf,
+    pub source: String,
+    pub purpose: Option<String>,
+    pub profile: Option<String>,
+    /// The stable ownership anchor for generated files in this repository.
+    #[serde(skip)]
+    pub anchor: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +118,13 @@ pub fn validate_profile(active: &Path, profile: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_profiles(active: &Path, manifest: &Manifest) -> Result<()> {
+    for profile in manifest.profiles() {
+        validate_profile(active, profile)?;
+    }
+    Ok(())
+}
+
 pub fn validate_branch(directory: &Path, branch: &str) -> Result<()> {
     git::run(
         directory,
@@ -111,7 +145,7 @@ pub fn validate_branch(directory: &Path, branch: &str) -> Result<()> {
 
 pub struct Paths {
     pub root: PathBuf,
-    pub code: PathBuf,
+    pub repositories: Vec<RepositoryInfo>,
     pub guidelines: PathBuf,
     pub guidelines_source: String,
 }
@@ -121,11 +155,32 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
         .parent()
         .context("Spec has no parent directory")?
         .to_owned();
-    let code = root.join(&manifest.name);
+    let mut repositories = Vec::new();
+    if let Some(code) = &manifest.code {
+        repositories.push(RepositoryInfo {
+            name: LEGACY_CODE_NAME.into(),
+            path: root.join(&manifest.name),
+            source: repository::resolve(&code.repository, source)?,
+            purpose: None,
+            profile: manifest.profile.clone(),
+            anchor: "code".into(),
+        });
+    }
+    for declared in manifest.repositories.iter().flatten() {
+        repositories.push(RepositoryInfo {
+            name: declared.name.clone(),
+            path: root.join(declared.directory()),
+            source: repository::resolve(&declared.url, source)?,
+            purpose: declared.purpose.clone(),
+            profile: declared.profile.clone(),
+            anchor: format!("repo:{}", declared.directory()),
+        });
+    }
     let guidelines_source = repository::resolve(&manifest.guidelines.repository, source)?;
     let guidelines = root.join(repository::directory_name(&guidelines_source)?);
-    let mut names = [spec, code.as_path(), guidelines.as_path()]
-        .iter()
+    let directories = [spec, guidelines.as_path()]
+        .into_iter()
+        .chain(repositories.iter().map(|r| r.path.as_path()))
         .map(|p| {
             p.file_name()
                 .unwrap_or_default()
@@ -133,17 +188,74 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
                 .to_lowercase()
         })
         .collect::<Vec<_>>();
-    names.sort();
-    names.dedup();
-    if names.len() != 3 {
-        bail!("Spec, code and guidelines need distinct directory names inside the project root.");
+    let mut distinct = directories.clone();
+    distinct.sort();
+    distinct.dedup();
+    if distinct.len() != directories.len() {
+        bail!(if manifest.code.is_some() {
+            "Spec, code and guidelines need distinct directory names inside the project root."
+        } else {
+            "The spec, guidelines and repositories need distinct directory names inside the project root."
+        });
+    }
+    if manifest.schema_version >= 2 {
+        if directories.iter().any(|d| d == ROLES_DIRECTORY) {
+            bail!("The {ROLES_DIRECTORY} directory is reserved for generated role entry points.");
+        }
+        let mut identities = vec![
+            repository::identity(source)?,
+            repository::identity(&guidelines_source)?,
+        ];
+        for repository in &repositories {
+            let identity = repository::identity(&repository.source)?;
+            if identities.contains(&identity) {
+                bail!(
+                    "Repository {} refers to a source that is already part of the workspace: {}",
+                    repository.name,
+                    repository.source
+                );
+            }
+            identities.push(identity);
+        }
     }
     Ok(Paths {
         root,
-        code,
+        repositories,
         guidelines,
         guidelines_source,
     })
+}
+
+/// Verifies every declared repository and reports all problems together.
+fn verify_repositories(paths: &Paths, legacy: bool) -> Result<()> {
+    if legacy {
+        for repository in &paths.repositories {
+            verify_repository(&repository.path, &repository.source, &repository.name)?;
+        }
+        return Ok(());
+    }
+    let mut problems = Vec::new();
+    for repository in &paths.repositories {
+        if !files::exists(&repository.path)? {
+            problems.push(format!(
+                "The {} repository is missing: {}\nExpected source: {}",
+                repository.name,
+                repository.path.display(),
+                repository.source
+            ));
+        } else if let Err(error) =
+            verify_repository(&repository.path, &repository.source, &repository.name)
+        {
+            problems.push(format!("{error:#}"));
+        }
+    }
+    if !problems.is_empty() {
+        bail!(
+            "{}\nClone missing repositories with Git at their declared paths, or run cspec project attach <spec> --clone-missing.",
+            problems.join("\n")
+        );
+    }
+    Ok(())
 }
 
 pub fn local_directory(spec: &Path, create: bool) -> Result<PathBuf> {
@@ -244,7 +356,7 @@ pub fn snapshot(
                 ["switch", &manifest.guidelines.reference],
             )?;
         }
-        validate_profile(&layout.guidelines, &manifest.profile)?;
+        validate_profiles(&layout.guidelines, manifest)?;
         if create {
             local_directory(spec, true)?;
         }
@@ -283,12 +395,14 @@ pub fn snapshot(
             "The cached guidelines differ from the lock or contain local changes. Preserve any work and remove that snapshot before retrying."
         );
     }
-    validate_profile(&active, &manifest.profile)?;
+    validate_profiles(&active, manifest)?;
     Ok((layout.guidelines, active))
 }
 
-fn is_spec(path: &Path) -> Result<bool> {
-    Ok(files::exists(&path.join("project.json"))? && files::exists(&path.join("spec"))?)
+fn is_spec(path: &Path) -> bool {
+    // Inaccessible directories, such as other users' temporary folders, are not specs.
+    files::exists(&path.join("project.json")).unwrap_or(false)
+        && files::exists(&path.join("spec")).unwrap_or(false)
 }
 
 pub fn find_spec(start: &Path) -> Result<PathBuf> {
@@ -303,7 +417,7 @@ pub fn discover_spec(start: &Path) -> Result<PathBuf> {
         current.pop();
     }
     loop {
-        if is_spec(&current)? {
+        if is_spec(&current) {
             let spec = git::root(&current)?;
             return Ok(spec);
         }
@@ -315,14 +429,13 @@ pub fn discover_spec(start: &Path) -> Result<PathBuf> {
             }
         } else {
             let mut candidates = Vec::new();
-            for entry in fs::read_dir(&current)? {
-                let entry = entry?;
-                if !entry.file_type()?.is_dir()
+            for entry in fs::read_dir(&current).into_iter().flatten().flatten() {
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir())
                     || entry.file_name().to_string_lossy().starts_with('.')
                 {
                     continue;
                 }
-                if is_spec(&entry.path())? {
+                if is_spec(&entry.path()) {
                     candidates.push(entry.path());
                 }
             }
@@ -347,18 +460,26 @@ pub fn info(start: &Path, create: bool, progress: Progress<'_>) -> Result<Projec
     let (manifest, lock) = manifest::read(&spec)?;
     let source = repository::origin(&spec)?;
     let layout = paths(&spec, &manifest, &source)?;
-    verify_repository(
-        &layout.code,
-        &repository::resolve(&manifest.code.repository, &source)?,
-        "code",
-    )?;
+    verify_repositories(&layout, manifest.code.is_some())?;
     let (editable_guidelines, active_guidelines) =
         snapshot(&spec, &manifest, lock.as_ref(), create, progress)?;
     let guidelines = guidelines_state(&active_guidelines, manifest.guidelines_mode(lock.as_ref()))?;
+    let declared = manifest.spec_repository.clone().unwrap_or_default();
     Ok(ProjectInfo {
         project_root: layout.root,
+        code: manifest
+            .code
+            .as_ref()
+            .and_then(|_| layout.repositories.first())
+            .map(|r| r.path.clone()),
+        spec_repository: SpecRepositoryInfo {
+            name: manifest.spec_name().into(),
+            path: spec.clone(),
+            purpose: declared.purpose,
+            profile: declared.profile,
+        },
+        repositories: layout.repositories,
         spec,
-        code: layout.code,
         editable_guidelines,
         active_guidelines,
         manifest,
@@ -429,11 +550,14 @@ pub fn clone_project(
             )
         })?;
         preserved = root;
-        progress("Fetching code");
-        git::clone(
-            &repository::resolve(&manifest.code.repository, &source)?,
-            &layout.code,
-        )?;
+        for repository in &layout.repositories {
+            if manifest.code.is_some() {
+                progress("Fetching code");
+            } else {
+                progress(&format!("Fetching {}", repository.name));
+            }
+            git::clone(&repository.source, &repository.path)?;
+        }
         let project = info(&spec, true, progress)?;
         crate::agents::sync(&project)?;
         Ok(project)
@@ -441,23 +565,122 @@ pub fn clone_project(
     result.with_context(|| format!("Project preparation failed. New directories preserved for inspection: {}\nExisting repositories have not been modified",preserved.display()))
 }
 
-pub fn attach(code: &Path, spec: &Path, progress: Progress<'_>) -> Result<ProjectInfo> {
-    let code = git::root(&files::absolute(code)?)?;
+/// Includes existing clones in place. With a code path, the legacy single-repository form
+/// verifies that path; otherwise every declared repository is checked at its declared path.
+pub fn attach(
+    code: Option<&Path>,
+    spec: &Path,
+    clone_missing: bool,
+    progress: Progress<'_>,
+) -> Result<ProjectInfo> {
     let spec = git::root(&files::absolute(spec)?)?;
     let (manifest, _) = manifest::read(&spec)?;
-    let expected = spec
-        .parent()
-        .context("Spec has no parent")?
-        .join(&manifest.name);
-    if !files::same(&code, &expected) {
+    let layout = paths(&spec, &manifest, &repository::origin(&spec)?)?;
+    if let Some(code) = code {
+        let code = git::root(&files::absolute(code)?)?;
+        let expected = match (&manifest.code, layout.repositories.first()) {
+            (Some(_), Some(repository)) => repository.path.clone(),
+            _ => bail!(
+                "This definition declares its repositories by name. Run cspec project attach <spec>; existing clones are found at their declared paths."
+            ),
+        };
+        if !files::same(&code, &expected) {
+            bail!(
+                "The spec expects its code in the sibling directory {}. No separate project bindings are stored.",
+                expected.display()
+            );
+        }
+    } else if let Some(enclosing) = git::enclosing(&layout.root) {
         bail!(
-            "The spec expects its code in the sibling directory {}. No separate project bindings are stored.",
-            expected.display()
+            "The project root is inside the Git repository {}. Place the spec and repositories as siblings in an ordinary directory.",
+            enclosing.display()
         );
+    }
+    let mut missing = Vec::new();
+    let mut problems = Vec::new();
+    for repository in &layout.repositories {
+        if !files::exists(&repository.path)? {
+            missing.push(repository);
+        } else if let Err(error) =
+            verify_repository(&repository.path, &repository.source, &repository.name)
+        {
+            problems.push(format!("{error:#}"));
+        }
+    }
+    if !problems.is_empty() {
+        bail!(
+            "{}\nNo repository or generated file was changed.",
+            problems.join("\n")
+        );
+    }
+    if !missing.is_empty() && !clone_missing {
+        let list = missing
+            .iter()
+            .map(|r| format!("- {}: {} ({})", r.name, r.path.display(), r.source))
+            .collect::<Vec<_>>()
+            .join("\n");
+        bail!(
+            "Declared repositories are missing:\n{list}\nClone them with Git at those paths, or run cspec project attach <spec> --clone-missing. Nothing was changed."
+        );
+    }
+    for repository in missing {
+        progress(&format!("Fetching {}", repository.name));
+        git::clone(&repository.source, &repository.path)?;
     }
     let project = info(&spec, true, progress)?;
     crate::agents::sync(&project)?;
     Ok(project)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryState {
+    pub name: String,
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub dirty: bool,
+}
+
+/// Reports local branch and change state without modifying any repository.
+pub fn repository_states(info: &ProjectInfo) -> Result<Vec<RepositoryState>> {
+    std::iter::once((&info.spec_repository.name, &info.spec))
+        .chain(info.repositories.iter().map(|r| (&r.name, &r.path)))
+        .map(|(name, path)| {
+            Ok(RepositoryState {
+                name: name.clone(),
+                path: path.clone(),
+                branch: git::run(path, ["symbolic-ref", "--quiet", "--short", "HEAD"]).ok(),
+                head: git::run(path, ["rev-parse", "--verify", "--quiet", "HEAD"]).ok(),
+                dirty: !git::run(path, ["status", "--porcelain"])?.is_empty(),
+            })
+        })
+        .collect()
+}
+
+/// Lists Git repositories in the project root that the definition does not declare.
+pub fn undeclared_repositories(info: &ProjectInfo) -> Result<Vec<PathBuf>> {
+    let known: Vec<&Path> = [info.spec.as_path(), info.editable_guidelines.as_path()]
+        .into_iter()
+        .chain(info.repositories.iter().map(|r| r.path.as_path()))
+        .collect();
+    let mut result = Vec::new();
+    for entry in fs::read_dir(&info.project_root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !entry.file_type()?.is_dir()
+            || entry.file_name().to_string_lossy().starts_with('.')
+            || entry.file_name() == ROLES_DIRECTORY
+            || known.iter().any(|k| files::same(k, &path))
+        {
+            continue;
+        }
+        if files::exists(&path.join(".git"))? {
+            result.push(path);
+        }
+    }
+    result.sort();
+    Ok(result)
 }
 
 pub fn editor_workspace(start: &Path) -> Result<PathBuf> {
@@ -473,7 +696,8 @@ pub fn editor_workspace(start: &Path) -> Result<PathBuf> {
         .as_object_mut()
         .context("Editor workspace must be a JSON object")?;
     let mut folders = Vec::new();
-    for folder in [&info.code, &info.spec, &info.editable_guidelines] {
+    let repositories = info.repositories.iter().map(|r| &r.path);
+    for folder in repositories.chain([&info.spec, &info.editable_guidelines]) {
         let name = folder
             .file_name()
             .context("Project folder has no name")?

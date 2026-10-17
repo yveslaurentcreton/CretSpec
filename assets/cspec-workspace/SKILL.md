@@ -5,9 +5,9 @@ description: Work in a CretSpec workspace, inspect its specification and active 
 
 # CretSpec workspace
 
-Run `cspec context --json` from the workspace or a sibling repository. Its versioned output identifies the spec, code, editable guidelines, active working tree or pinned snapshot, instruction sources and skill source directories. Read the relevant sources; do not infer repository roles from names. If context is unavailable, use `cspec project doctor --json` and explain the reported problem before changing configuration.
+Run `cspec context --json` from the workspace or a sibling repository. Its versioned output identifies the spec, every declared repository with its purpose and local state, editable guidelines, active working tree or pinned snapshot, instruction sources, skill source directories and roles. Read the relevant sources; do not infer repository roles from names. Keep each change in the repository that owns it. If context is unavailable, use `cspec project doctor --json` and explain the reported problem before changing configuration.
 
-Apply the active specification method and selected technology profile. Keep concrete requirements, milestones, stories, decisions and verification evidence in the spec. Record checks actually performed and distinguish proposed work from agreed scope. The CLI does not determine whether a story is complete.
+Apply the active specification method and selected technology profiles. Project rules take precedence over shared guidance. Keep concrete requirements, milestones, stories, decisions and verification evidence in the spec. Record checks actually performed and distinguish proposed work from agreed scope. The CLI does not determine whether a story is complete.
 
 ## Preserve reusable knowledge
 
@@ -22,6 +22,10 @@ Use `cspec skill list --json` to inspect active skills and editable shared draft
 Check `project.guidelines.mode` in context. In `workingTree` mode, shared guidelines use the editable repository directly, including uncommitted changes. Read new local rules immediately; run `cspec sync` after completing or editing any skill to refresh generated copies. Use ordinary Git fetch/pull/commit/push to exchange changes between projects. Opening a folder or running context, info, doctor or sync does not fetch, pull or switch branches.
 
 In `pinned` mode, shared rules and skills use the locked snapshot. Shared drafts become active after explicit adoption with `cspec guidelines update <reference>`. To use the current editable branch instead, preview `cspec guidelines unlock --preview` and apply `cspec guidelines unlock` when requested. New projects default to working-tree mode; existing locks remain pinned. Do not change another project's mode without authorization. Creating a skill does not authorize publication. Never edit snapshots or generated copies.
+
+## Roles
+
+A role gives a conversation a specific focus. Role sources are `spec/roles/<name>.md` in the spec; `cspec sync` generates a folder per role under `roles/` in the workspace. If you were started in a role folder, follow its role instructions. When the user asks you to take on a role elsewhere, run `cspec context --role <name> --json` and follow the returned instructions and focus repositories. Do not edit generated role folders, and never switch roles by changing shared instruction files. Roles are working agreements, not permissions: confirm before changes outside the role's responsibilities or with external effects.
 
 ## CLI use
 

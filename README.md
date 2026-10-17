@@ -23,7 +23,7 @@
   <a href="https://yveslaurentcreton.github.io/CretSpec/start/quickstart/">Quick start</a>
 </p>
 
-CretSpec is a small native CLI that clones your **spec, code and shared AI guidelines** into one workspace. It prepares local instructions and skills for **Codex, Claude Code, GitHub Copilot in VS Code and Cursor**.
+CretSpec is a small native CLI that clones your **spec, code repositories and shared AI guidelines** into one workspace. It prepares local instructions, skills and role-specific entry points for **Codex, Claude Code, GitHub Copilot in VS Code and Cursor**.
 
 Your spec defines the project. Each repository keeps its own Git history. Use your existing Git credentials on Windows, macOS or Linux.
 
@@ -62,6 +62,6 @@ Starting a new project? [Create a specification first](https://yveslaurentcreton
 
 **[The documentation site](https://yveslaurentcreton.github.io/CretSpec/)** covers setup, everyday workflows, configuration and the full CLI reference.
 
-[How it works](https://yveslaurentcreton.github.io/CretSpec/start/concepts/) · [Working with agents and skills](https://yveslaurentcreton.github.io/CretSpec/guides/agents/) · [CLI reference](https://yveslaurentcreton.github.io/CretSpec/reference/commands/)
+[How it works](https://yveslaurentcreton.github.io/CretSpec/start/concepts/) · [Working with agents and skills](https://yveslaurentcreton.github.io/CretSpec/guides/agents/) · [Combining repositories and roles](https://yveslaurentcreton.github.io/CretSpec/guides/workspaces/) · [CLI reference](https://yveslaurentcreton.github.io/CretSpec/reference/commands/)
 
 Bug reports and focused improvements are welcome. See [Contributing](CONTRIBUTING.md).
