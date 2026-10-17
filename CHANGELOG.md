@@ -5,7 +5,6 @@
 
 ### Features
 
-* support multi-repository workspaces and agent roles ([eb13c99](https://github.com/yveslaurentcreton/CretSpec/commit/eb13c997918d51fbb133d8e8bc9b172ab997e910))
 * support multi-repository workspaces and agent roles ([6690005](https://github.com/yveslaurentcreton/CretSpec/commit/669000548811631e3a52ee5f61b1e08340d36580))
 
 ## [0.4.0](https://github.com/yveslaurentcreton/CretSpec/releases/tag/v0.4.0) (2026-09-18)
