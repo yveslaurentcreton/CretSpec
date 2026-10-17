@@ -2072,8 +2072,8 @@ fn roles_generate_separate_entry_points_without_changing_shared_files() {
         "Keep application code and infrastructure in their own repositories.",
     );
     agents::sync(&info).unwrap();
-    let operations_dir = info.project_root.join("roles/operations");
-    let development = info.project_root.join("roles/app-dev");
+    let operations_dir = info.project_root.join("roles").join("operations");
+    let development = info.project_root.join("roles").join("app-dev");
     let codex = fs::read_to_string(operations_dir.join("AGENTS.md")).unwrap();
     assert!(codex.starts_with("# CretSpec workspace"));
     assert!(codex.contains("## Role: operations"));
