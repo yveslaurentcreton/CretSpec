@@ -177,10 +177,14 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
             source: repository::resolve(&declared.url, source)?,
             purpose: declared.purpose.clone(),
             profile: declared.profile.clone(),
-            skills: declared
-                .skills
-                .as_ref()
-                .map(|skills| root.join(declared.directory()).join(skills)),
+            skills: declared.skills.as_ref().map(|skills| {
+                // Join each segment, so the path uses the platform's separators.
+                skills
+                    .split('/')
+                    .fold(root.join(declared.directory()), |path, segment| {
+                        path.join(segment)
+                    })
+            }),
             anchor: format!("repo:{}", declared.directory()),
         });
     }
