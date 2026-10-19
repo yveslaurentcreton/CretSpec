@@ -1,6 +1,6 @@
 ---
 name: cspec-workspace
-description: Work in a CretSpec workspace, inspect its specification and active guidelines, maintain requirements and stories, or save a reusable approach as a project or shared skill. Use when a request concerns the workspace method, its guidance, or the cspec CLI.
+description: Work in a CretSpec workspace, inspect its specification and active guidelines, maintain requirements and stories, or save a reusable approach as a project, repository or shared skill. Use when a request concerns the workspace method, its guidance, or the cspec CLI.
 ---
 
 # CretSpec workspace
@@ -14,10 +14,11 @@ Apply the active specification method and selected technology profiles. Project 
 When asked to remember an approach, first decide whether it is an agreement, a project decision or a repeatable skill. An agreement belongs in the appropriate guidelines or project rules; it does not automatically need a skill.
 
 - Project-specific skills belong in the spec's `spec/skills/<name>/`.
+- Skills that belong to one repository's own code or method belong in that repository's skill directory, when context reports one under `skillSources.repositories`. They are committed with that repository and travel with it to other workspaces.
 - Reusable skills belong in the editable guidelines repository's `skills/<name>/`.
-- If the intended scope is already clear, use it. Otherwise ask one concise question: should this be specific to this project or shared across projects? Explain the proposed scope using the user's example.
+- If the intended scope is already clear, use it. Otherwise ask one concise question: should this be specific to this project (or one of its repositories) or shared across projects? Explain the proposed scope using the user's example.
 
-Use `cspec skill list --json` to inspect active skills and editable shared drafts. Use `cspec skill create <name> --scope project|shared --description "What it does and when to use it" --json` to scaffold the selected source. Complete the returned `SKILL.md` and include only supporting resources the skill needs. Keep the name, description and relative resource links portable across agents. Check any script's Windows, Linux and macOS dependencies; CretSpec does not run scripts during preparation.
+Use `cspec skill list --json` to inspect active skills, their scope and declaring repository, and editable shared drafts. Use `cspec skill create <name> --scope project|shared --description "What it does and when to use it" --json` to scaffold the selected source; add `--scope repository --repository <name>` for a repository skill. Complete the returned `SKILL.md` and include only supporting resources the skill needs. Keep the name, description and relative resource links portable across agents. Check any script's Windows, Linux and macOS dependencies; CretSpec does not run scripts during preparation.
 
 Check `project.guidelines.mode` in context. In `workingTree` mode, shared guidelines use the editable repository directly, including uncommitted changes. Read new local rules immediately; run `cspec sync` after completing or editing any skill to refresh generated copies. Use ordinary Git fetch/pull/commit/push to exchange changes between projects. Opening a folder or running context, info, doctor or sync does not fetch, pull or switch branches.
 

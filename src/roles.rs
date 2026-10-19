@@ -73,8 +73,10 @@ fn parse(info: &ProjectInfo, path: &Path, expected: &str) -> Result<Role> {
         bail!("Expected a regular role file of at most 128 KiB");
     }
     let (yaml, body) = skills::frontmatter(&fs::read(path)?, "A role file")?;
-    let header: Header = serde_yaml_ng::from_str(&yaml).context(
-        "Invalid role frontmatter; use name, description, optional repositories and optional skills",
+    let header: Header = skills::parse_frontmatter(
+        &yaml,
+        "role",
+        "Use name, description, optional repositories and optional skills.",
     )?;
     if !skills::valid_name(&header.name) || header.name != expected {
         bail!(

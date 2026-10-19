@@ -46,6 +46,9 @@ pub struct Repository {
     pub purpose: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// The repository's own skill directory, relative to the repository root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<String>,
 }
 
 impl Repository {
@@ -193,6 +196,16 @@ fn validate_purpose(purpose: Option<&str>, owner: &str) -> Result<()> {
     Ok(())
 }
 
+/// A relative path of portable, non-hidden directory names separated by `/`.
+pub fn valid_relative_directory(path: &str) -> bool {
+    let segments: Vec<_> = path.split('/').collect();
+    path.len() <= 255
+        && segments.len() <= 8
+        && segments
+            .iter()
+            .all(|segment| files::portable_name(segment) && !segment.starts_with('.'))
+}
+
 fn validate_repositories(manifest: &Manifest) -> Result<()> {
     let repositories = manifest
         .repositories
@@ -211,6 +224,14 @@ fn validate_repositories(manifest: &Manifest) -> Result<()> {
         let directory = repository.directory();
         if !files::portable_name(directory) || directory.starts_with('.') {
             bail!("Repository path must be one portable, non-hidden directory name: {directory}");
+        }
+        if let Some(skills) = &repository.skills
+            && !valid_relative_directory(skills)
+        {
+            bail!(
+                "The skill directory of {} must be a relative path of at most 8 portable, non-hidden directory names separated by /: {skills}",
+                repository.name
+            );
         }
         names.push(repository.name.clone());
         directories.push(directory.to_ascii_lowercase());

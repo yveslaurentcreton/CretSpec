@@ -74,6 +74,7 @@ Existing clones are compared by repository identity, not by exact text. SSH and 
 | `repositories[].path` | Optional folder in the project root; defaults to `name`. One portable, non-hidden folder name. |
 | `repositories[].purpose` | Optional single line, at most 500 characters, describing the repository's function. Shown to agents. |
 | `repositories[].profile` | Optional profile that applies to this repository. |
+| `repositories[].skills` | Optional skill directory of this repository, relative to it, such as `spec/skills`. At most eight portable, non-hidden folder names separated by `/`. Its skills are committed with the repository. See [repository skills](/CretSpec/reference/skills/#sources-and-validation). Requires CretSpec 0.6.0 or later. |
 | `guidelines`, `agents` | Same as version 1. |
 
 Folder names of the spec, guidelines and every repository must be distinct, ignoring case. `roles` is reserved for generated [role entry points](/CretSpec/guides/workspaces/#define-roles). Two members cannot refer to the same repository. Every selected profile must exist in the active guidelines.
