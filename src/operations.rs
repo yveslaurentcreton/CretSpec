@@ -339,6 +339,14 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
                     detail: format!("Warning: {}", warnings.join("; ")),
                 });
             }
+            let warnings = crate::agents::claude_warnings(&info);
+            if !warnings.is_empty() {
+                checks.push(Check {
+                    name: "Claude Code entry points".into(),
+                    ok: true,
+                    detail: format!("Warning: {}", warnings.join("; ")),
+                });
+            }
             if info.guidelines.mode == GuidelinesMode::WorkingTree {
                 let state = &info.guidelines;
                 let mut notices = Vec::new();

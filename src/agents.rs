@@ -132,6 +132,8 @@ fn target(info: &ProjectInfo, key: &str) -> Result<Target> {
             }
         }
     };
+    // Earlier versions generated CLAUDE.md and CLAUDE.local.md. Their keys still resolve,
+    // so sync can remove them.
     let instruction = matches!(
         relative,
         "AGENTS.md"
@@ -248,7 +250,7 @@ fn read_state(info: &ProjectInfo, name: &str) -> Result<State> {
 }
 
 /// Ownership without generated paths that Git now tracks with other content. A branch
-/// switch can replace an excluded generated file with a tracked one, such as CLAUDE.md;
+/// switch can replace an excluded generated file with a tracked one, such as AGENTS.md;
 /// that file now belongs to the repository. A tracked file that still has generated
 /// content was added to Git by mistake and remains a conflict.
 fn effective_ownership(info: &ProjectInfo) -> Result<(State, Vec<PathBuf>)> {
@@ -420,8 +422,17 @@ fn bootstrap(
             Some(relative(info, base, path).map(|path| format!("`{}` (`{path}`)", r.name)))
         })
         .collect::<Result<Vec<_>>>()?;
+    let declared = info
+        .manifest
+        .repositories
+        .as_ref()
+        .is_some_and(|r| !r.is_empty());
     let repository_policy = if repository_skills.is_empty() {
-        String::new()
+        if declared {
+            " A skill that belongs to one repository's own code or method needs a skill directory declared for that repository in `project.json` (`repositories[].skills`, for example `spec/skills`); propose that before creating it elsewhere.".into()
+        } else {
+            String::new()
+        }
     } else {
         format!(
             " Skills that belong to one repository's own code or method belong in that repository's skill directory and are committed with it: {}.",
@@ -515,11 +526,6 @@ fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resourc
         };
         if anchor.role.is_some() {
             result.insert(key("AGENTS.md"), text(guidance.clone()));
-            if has(Agent::Claude) {
-                // Claude Code does not expand imports in parent folders' CLAUDE.md files
-                // without approval, so the role folder imports its own complete instructions.
-                result.insert(key("CLAUDE.md"), text("@AGENTS.md\n".into()));
-            }
         } else {
             let agents_name = if unmanaged(&anchor, "AGENTS.md", &owned)? {
                 "AGENTS.override.md"
@@ -549,18 +555,6 @@ fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resourc
                 guidance.clone()
             };
             result.insert(key(agents_name), text(instructions));
-            if has(Agent::Claude) {
-                // Claude reads a tracked CLAUDE.md itself, which decides how repository
-                // instructions reach Claude. Never copy the tracked AGENTS.md for Claude.
-                let (name, content) = if unmanaged(&anchor, "CLAUDE.md", &owned)? {
-                    ("CLAUDE.local.md", guidance.clone())
-                } else if agents_name == "AGENTS.override.md" {
-                    ("CLAUDE.md", format!("@AGENTS.md\n\n{guidance}"))
-                } else {
-                    ("CLAUDE.md", "@AGENTS.md\n".into())
-                };
-                result.insert(key(name), text(content));
-            }
         }
         if has(Agent::Copilot) {
             result.insert(
@@ -946,6 +940,52 @@ pub fn check(info: &ProjectInfo) -> Result<String> {
         "{} generated files match the selected integrations and active skills",
         next.len()
     ))
+}
+
+/// Files that make Claude Code read CLAUDE.md instead of AGENTS.md.
+const CLAUDE_ENTRY_POINTS: [&str; 3] = ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"];
+
+/// Reports CLAUDE.md files that stop Claude Code from reading the generated AGENTS.md.
+/// Claude Code reads AGENTS.md only when no such file exists in its working directory
+/// or above it. Files that CretSpec still owns are removed by the next sync.
+pub fn claude_warnings(info: &ProjectInfo) -> Vec<String> {
+    if !info.manifest.agents.contains(&Agent::Claude) {
+        return Vec::new();
+    }
+    let Ok(owned) = effective_ownership(info).and_then(|(state, _)| owned_paths(info, &state))
+    else {
+        return Vec::new();
+    };
+    let roles = roles::load(info).unwrap_or_default();
+    let mut bases = info
+        .project_root
+        .ancestors()
+        .skip(1)
+        .map(Path::to_path_buf)
+        .collect::<Vec<_>>();
+    bases.extend(anchors(info, roles).into_iter().map(|anchor| anchor.base));
+    let mut warnings: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for base in bases {
+        for name in CLAUDE_ENTRY_POINTS {
+            let path = base.join(name);
+            if path.is_file()
+                && !owned.contains_key(&path)
+                && !warnings.iter().any(|(_, known)| *known == path)
+            {
+                warnings.push((base.clone(), path));
+            }
+        }
+    }
+    warnings
+        .into_iter()
+        .map(|(base, path)| {
+            format!(
+                "{} makes Claude Code read CLAUDE.md files instead of AGENTS.md in {} and below",
+                path.display(),
+                base.display()
+            )
+        })
+        .collect()
 }
 
 /// Codex reads at most 32 KiB of project instructions by default (`project_doc_max_bytes`).

@@ -88,7 +88,7 @@ Each repository is named after its folder, here `atlas-infra`. You can choose a 
 
 Project rules take precedence over shared guidelines. A project can, for example, keep its existing specification method and record that choice in its project rules.
 
-Let repositories commit only `AGENTS.md`. Every supported agent reads it, and CretSpec generates the local Claude Code entry point. A committed `CLAUDE.md` is respected, but makes Claude Code skip `AGENTS.md`; see [generated files](/CretSpec/reference/skills/#generated-files). Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
+Let repositories commit only `AGENTS.md`. Every supported agent reads it, so CretSpec generates no tool-specific entry point for Claude Code. A committed `CLAUDE.md` is respected, but makes Claude Code skip `AGENTS.md`, including the workspace context; see [generated files](/CretSpec/reference/skills/#generated-files). Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
 
 ## Define roles
 
@@ -99,7 +99,6 @@ A role gives an agent shared project context with a specific focus. Store each r
 name: app-dev
 description: Develop and test the application, including related infrastructure changes.
 repositories: [atlas, infra]
-skills: [release-check]
 ---
 
 Develop features through the application's own specification workflow.
@@ -107,21 +106,22 @@ Keep application code and infrastructure changes in their own repositories.
 Check the infrastructure repository's branch and status before editing it.
 ```
 
-`repositories` lists the focus repositories by name, in priority order. `skills` selects active project, repository or shared skills; omit it to include all of them. The built-in `cspec-workspace` skill is always included. The Markdown body describes the role's responsibilities and boundaries.
+`repositories` lists the focus repositories by name, in priority order. The optional `skills` field selects active project, repository or shared skills; omit it, as recommended, to give the role every skill of the workspace. The built-in `cspec-workspace` skill is always included. The Markdown body describes the role's responsibilities and boundaries.
+
+Agents use a skill only when it matches the request, so a role rarely needs a narrower selection. Describe what the role does and leaves to other roles in its body instead. Select skills only to keep a long list focused. The selection is not isolation: Claude Code also loads `.claude/skills/` from the directories above its working directory, so in a role folder it also sees the workspace's skills.
 
 Run `cspec sync`. Every role gets its own folder:
 
 ```text
 roles/app-dev/
 ├── AGENTS.md            shared context plus the role
-├── CLAUDE.md            imports AGENTS.md for Claude Code
-├── .agents/skills/      the selected skills
+├── .agents/skills/      the role's skills
 └── .claude/skills/
 ```
 
 ## Select a role
 
-Start the agent in the role's folder. Two conversations can use different roles at the same time, because each reads its own folder and nothing is switched:
+Agents take their instructions from the directory in which they start, and most hosts cannot pass different instructions per conversation. A role folder gives each role its own starting directory. Start the agent in the role's folder. Two conversations can use different roles at the same time, because each reads its own folder and nothing is switched:
 
 ```sh
 cd Atlas/roles/operations && codex

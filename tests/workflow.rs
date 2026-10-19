@@ -292,7 +292,6 @@ fn agent_entry_points_are_discoverable_excluded_and_relocatable() {
     ] {
         for relative in [
             "AGENTS.md",
-            "CLAUDE.md",
             ".agents/skills/cspec-workspace/SKILL.md",
             ".claude/skills/cspec-workspace/SKILL.md",
             ".github/instructions/cspec.instructions.md",
@@ -304,6 +303,9 @@ fn agent_entry_points_are_discoverable_excluded_and_relocatable() {
                 git::run(base, ["check-ignore", "--quiet", "--", relative]).unwrap();
             }
         }
+        // Claude Code reads AGENTS.md itself; CretSpec generates no CLAUDE.md.
+        assert!(!base.join("CLAUDE.md").exists());
+        assert!(!base.join("CLAUDE.local.md").exists());
         assert!(
             !fs::read_to_string(base.join("AGENTS.md"))
                 .unwrap()
@@ -489,10 +491,18 @@ fn existing_repository_instructions_are_preserved_and_included() {
             .unwrap()
             .contains("Run the existing checks.")
     );
-    // Claude reads the tracked CLAUDE.md itself; the local entry adds only workspace context.
-    let claude = fs::read_to_string(info.code().join("CLAUDE.local.md")).unwrap();
-    assert!(claude.starts_with("# CretSpec workspace"));
-    assert!(!claude.contains("Run the existing checks."));
+    // A tracked CLAUDE.md stays the repository's choice; doctor explains its effect.
+    assert!(!info.code().join("CLAUDE.local.md").exists());
+    let warning = operations::diagnose(&info.spec)
+        .into_iter()
+        .find(|check| check.name == "Claude Code entry points")
+        .unwrap();
+    assert!(warning.ok);
+    assert!(
+        warning
+            .detail
+            .contains(&info.code().join("CLAUDE.md").display().to_string())
+    );
     assert_eq!(
         git::run(&info.code(), ["status", "--porcelain"]).unwrap(),
         ""
@@ -634,7 +644,7 @@ fn pending_sync_is_diagnosed_and_can_be_retried_without_losing_user_work() {
     let local = info.spec.join(".local");
     let state = fs::read(local.join("agents-state.json")).unwrap();
     fs::write(local.join("agents-pending.json"), &state).unwrap();
-    fs::remove_file(info.code().join("CLAUDE.md")).unwrap();
+    fs::remove_file(info.code().join("AGENTS.md")).unwrap();
     let before = fs::read(local.join("agents-pending.json")).unwrap();
     let report = operations::diagnose(&info.spec);
     assert!(
@@ -643,22 +653,62 @@ fn pending_sync_is_diagnosed_and_can_be_retried_without_losing_user_work() {
             .any(|check| !check.ok && check.detail.contains("interrupted"))
     );
     assert_eq!(fs::read(local.join("agents-pending.json")).unwrap(), before);
-    assert!(!info.code().join("CLAUDE.md").exists());
+    assert!(!info.code().join("AGENTS.md").exists());
     agents::sync(&info).unwrap();
     assert!(!local.join("agents-pending.json").exists());
-    assert!(info.code().join("CLAUDE.md").exists());
+    assert!(info.code().join("AGENTS.md").exists());
     agents::check(&info).unwrap();
     fs::write(local.join("agents-pending.json"), &state).unwrap();
     fs::write(
-        info.code().join("CLAUDE.md"),
+        info.code().join("AGENTS.md"),
         "User changed this after interruption",
     )
     .unwrap();
     assert!(agents::sync(&info).is_err());
     assert_eq!(
-        fs::read(info.code().join("CLAUDE.md")).unwrap(),
+        fs::read(info.code().join("AGENTS.md")).unwrap(),
         b"User changed this after interruption"
     );
+}
+
+#[test]
+fn sync_removes_claude_entry_points_from_earlier_versions() {
+    use sha2::{Digest, Sha256};
+    let f = Fixture::new();
+    let info = f.clone();
+    let state_path = info.spec.join(".local/agents-state.json");
+    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    let mut earlier = Vec::new();
+    for (key, path) in [
+        ("root/CLAUDE.md", info.project_root.join("CLAUDE.md")),
+        ("code/CLAUDE.local.md", info.code().join("CLAUDE.local.md")),
+    ] {
+        let content = b"@AGENTS.md\n";
+        fs::write(&path, content).unwrap();
+        let sha256 = Sha256::digest(content)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        state["files"][key] = json!([{ "sha256": sha256, "executable": false }]);
+        earlier.push(path);
+    }
+    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+    // A user's own CLAUDE.md is never removed; doctor explains that it hides AGENTS.md.
+    fs::write(info.spec.join("CLAUDE.md"), "# My notes\n").unwrap();
+    assert!(agents::check(&info).is_err());
+    let result = agents::sync(&info).unwrap();
+    assert_eq!(result.removed, 2);
+    for path in earlier {
+        assert!(!path.exists(), "{}", path.display());
+    }
+    assert_eq!(
+        fs::read_to_string(info.spec.join("CLAUDE.md")).unwrap(),
+        "# My notes\n"
+    );
+    agents::check(&info).unwrap();
+    let warnings = agents::claude_warnings(&info);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains(&info.spec.join("CLAUDE.md").display().to_string()));
 }
 
 #[test]
@@ -740,7 +790,7 @@ fn linked_sources_and_targets_are_rejected_and_executable_resources_survive() {
     symlink(f.root.join("outside"), source.join("escape")).unwrap();
     assert!(agents::sync(&info).is_err());
     fs::remove_file(source.join("escape")).unwrap();
-    let generated = info.code().join("CLAUDE.md");
+    let generated = info.code().join("AGENTS.md");
     fs::remove_file(&generated).unwrap();
     symlink(f.root.join("outside"), &generated).unwrap();
     assert!(agents::sync(&info).is_err());
@@ -2062,11 +2112,7 @@ fn combined_spec_and_code_repository_keeps_its_existing_specification() {
         fs::read_to_string(app.join("CLAUDE.md")).unwrap(),
         "Read AGENTS.md first.\n"
     );
-    let claude = fs::read_to_string(app.join("CLAUDE.local.md")).unwrap();
-    assert!(
-        claude.contains("repository `app`: `.`") || claude.contains("repository `app`: `../app`")
-    );
-    assert!(!claude.contains("Application agent contract"));
+    assert!(!app.join("CLAUDE.local.md").exists());
     assert_eq!(
         git::run(&app, ["status", "--porcelain"]).unwrap(),
         "?? project.json"
@@ -2109,10 +2155,7 @@ fn roles_generate_separate_entry_points_without_changing_shared_files() {
     assert!(codex.contains("- `infra`: `../../infra`"));
     assert!(codex.contains("Investigate system status only when asked."));
     assert!(codex.contains("not a security boundary"));
-    assert_eq!(
-        fs::read_to_string(operations_dir.join("CLAUDE.md")).unwrap(),
-        "@AGENTS.md\n"
-    );
+    assert!(!operations_dir.join("CLAUDE.md").exists());
     assert_eq!(
         children(&operations_dir.join(".claude/skills")),
         ["cspec-workspace"]
@@ -2140,7 +2183,7 @@ fn roles_generate_separate_entry_points_without_changing_shared_files() {
         "Investigate system status only when asked. Never change the cluster.",
     );
     let result = agents::sync(&info).unwrap();
-    // Only the changed role's AGENTS.md changes; its CLAUDE.md imports that file.
+    // Only the changed role's AGENTS.md changes.
     assert_eq!(result.written, 1);
     assert_eq!(
         fs::read(info.project_root.join("AGENTS.md")).unwrap(),
@@ -2309,6 +2352,7 @@ fn repositories_own_skills_next_to_project_and_shared_skills() {
     assert!(instructions.contains(
         "repository's skill directory and are committed with it: `app` (`Sample/docs/skills`), `infra` (`infra/spec/skills`)."
     ));
+    assert!(!instructions.contains("needs a skill directory declared"));
     let list: Value = serde_json::from_str(&ok(f.cli(&[
         "skill",
         "list",
@@ -2471,51 +2515,47 @@ fn a_branch_that_tracks_a_generated_entry_point_takes_it_over() {
     let f = v2_fixture();
     let info = f.clone();
     let infra = info.project_root.join("infra");
-    let generated = fs::read_to_string(infra.join("CLAUDE.md")).unwrap();
-    assert!(generated.starts_with("@AGENTS.md"));
-    git::run(&infra, ["checkout", "-q", "-b", "with-claude"]).unwrap();
-    fs::write(
-        infra.join("CLAUDE.md"),
-        "# Repository instructions for Claude\n",
-    )
-    .unwrap();
-    git::run(&infra, ["add", "--force", "CLAUDE.md"]).unwrap();
-    commit(&infra, "Track CLAUDE.md");
+    let generated = fs::read_to_string(infra.join("AGENTS.md")).unwrap();
+    assert!(generated.starts_with("# CretSpec workspace"));
+    // Without a declared repository skill directory, the guidance says how to add one.
+    assert!(generated.contains("needs a skill directory declared for that repository"));
+    git::run(&infra, ["checkout", "-q", "-b", "with-agents"]).unwrap();
+    fs::write(infra.join("AGENTS.md"), "# Repository instructions\n").unwrap();
+    git::run(&infra, ["add", "--force", "AGENTS.md"]).unwrap();
+    commit(&infra, "Track AGENTS.md");
     git::run(&infra, ["checkout", "-q", "main"]).unwrap();
     agents::sync(&info).unwrap();
     assert_eq!(
-        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        fs::read_to_string(infra.join("AGENTS.md")).unwrap(),
         generated
     );
     // Git replaces the ignored generated file with the tracked one.
-    git::run(&infra, ["checkout", "-q", "with-claude"]).unwrap();
+    git::run(&infra, ["checkout", "-q", "with-agents"]).unwrap();
     // Git may check the file out with CRLF line endings on Windows.
-    let tracked = fs::read_to_string(infra.join("CLAUDE.md")).unwrap();
-    assert_eq!(
-        tracked.replace("\r\n", "\n"),
-        "# Repository instructions for Claude\n"
-    );
+    let tracked = fs::read_to_string(infra.join("AGENTS.md")).unwrap();
+    assert_eq!(tracked.replace("\r\n", "\n"), "# Repository instructions\n");
     let error = format!("{:#}", agents::check(&info).unwrap_err());
     assert!(error.contains("Git now tracks"), "{error}");
     let result = agents::sync(&info).unwrap();
-    assert_eq!(result.released, [infra.join("CLAUDE.md")]);
+    assert_eq!(result.released, [infra.join("AGENTS.md")]);
     assert_eq!(
-        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        fs::read_to_string(infra.join("AGENTS.md")).unwrap(),
         tracked
     );
-    let local = fs::read_to_string(infra.join("CLAUDE.local.md")).unwrap();
-    assert!(local.starts_with("# CretSpec workspace"));
+    let local = fs::read_to_string(infra.join("AGENTS.override.md")).unwrap();
+    assert!(local.starts_with(&tracked));
+    assert!(local.contains("# CretSpec workspace"));
     assert_eq!(git::run(&infra, ["status", "--porcelain"]).unwrap(), "");
     agents::check(&info).unwrap();
-    // Back on a branch without it, CretSpec generates CLAUDE.md again.
+    // Back on a branch without it, CretSpec generates AGENTS.md again.
     git::run(&infra, ["checkout", "-q", "main"]).unwrap();
-    assert!(!infra.join("CLAUDE.md").exists());
+    assert!(!infra.join("AGENTS.md").exists());
     agents::sync(&info).unwrap();
     assert_eq!(
-        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        fs::read_to_string(infra.join("AGENTS.md")).unwrap(),
         generated
     );
-    assert!(!infra.join("CLAUDE.local.md").exists());
+    assert!(!infra.join("AGENTS.override.md").exists());
     agents::check(&info).unwrap();
 }
 
