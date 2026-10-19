@@ -50,6 +50,9 @@ pub struct RepositoryInfo {
     pub source: String,
     pub purpose: Option<String>,
     pub profile: Option<String>,
+    /// The repository's own skill directory, when the definition declares one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills: Option<PathBuf>,
     /// The stable ownership anchor for generated files in this repository.
     #[serde(skip)]
     pub anchor: String,
@@ -163,6 +166,7 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
             source: repository::resolve(&code.repository, source)?,
             purpose: None,
             profile: manifest.profile.clone(),
+            skills: None,
             anchor: "code".into(),
         });
     }
@@ -173,6 +177,10 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
             source: repository::resolve(&declared.url, source)?,
             purpose: declared.purpose.clone(),
             profile: declared.profile.clone(),
+            skills: declared
+                .skills
+                .as_ref()
+                .map(|skills| root.join(declared.directory()).join(skills)),
             anchor: format!("repo:{}", declared.directory()),
         });
     }

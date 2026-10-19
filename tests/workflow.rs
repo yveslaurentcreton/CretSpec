@@ -381,6 +381,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
             &info,
             "query-validation",
             skills::Scope::Project,
+            None,
             "Another description"
         )
         .is_err()
@@ -389,6 +390,7 @@ fn skills_keep_project_sources_and_shared_drafts_separate() {
         &info,
         "release-check",
         skills::Scope::Shared,
+        None,
         "Check a release",
     )
     .unwrap();
@@ -555,7 +557,7 @@ fn invalid_and_colliding_skills_fail_before_changing_integrations() {
         agents::sync(&info)
             .unwrap_err()
             .to_string()
-            .contains("both project")
+            .contains("both the project source and the active shared source")
     );
     assert_eq!(fs::read(&output).unwrap(), before);
     fs::remove_dir_all(source).unwrap();
@@ -567,9 +569,18 @@ fn invalid_and_colliding_skills_fail_before_changing_integrations() {
     .unwrap();
     assert!(agents::sync(&info).is_err());
     assert_eq!(fs::read(&output).unwrap(), before);
-    assert!(skills::create(&info, "../outside", skills::Scope::Project, "Example").is_err());
-    assert!(skills::create(&info, "cspec-workspace", skills::Scope::Project, "Example").is_err());
-    assert!(skills::create(&info, "con", skills::Scope::Project, "Example").is_err());
+    assert!(skills::create(&info, "../outside", skills::Scope::Project, None, "Example").is_err());
+    assert!(
+        skills::create(
+            &info,
+            "cspec-workspace",
+            skills::Scope::Project,
+            None,
+            "Example"
+        )
+        .is_err()
+    );
+    assert!(skills::create(&info, "con", skills::Scope::Project, None, "Example").is_err());
 }
 
 #[test]
@@ -1811,6 +1822,24 @@ fn version_two_definitions_reject_ambiguous_repositories() {
         &|v| v["repositories"][1]["path"] = json!("../outside")
     ));
     assert!(invalid(&|v| v["repositories"][1]["path"] = json!(".hidden")));
+    assert!(!invalid(
+        &|v| v["repositories"][1]["skills"] = json!("spec/skills")
+    ));
+    for skills in [
+        "",
+        "/skills",
+        "../skills",
+        "spec/../skills",
+        "spec/.skills",
+        "spec\\skills",
+        "spec//skills",
+        "a/b/c/d/e/f/g/h/i",
+    ] {
+        assert!(
+            invalid(&|v| v["repositories"][1]["skills"] = json!(skills)),
+            "{skills}"
+        );
+    }
     assert!(invalid(&|v| v["repositories"][1]["name"] = json!("Infra")));
     assert!(invalid(
         &|v| v["repositories"][1]["url"] = json!("https://user:secret@example.com/infra.git")
@@ -2237,4 +2266,291 @@ fn discovery_outside_a_workspace_ignores_inaccessible_directories() {
     let error = workspace::discover_spec(&start);
     fs::set_permissions(&private, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(format!("{:#}", error.unwrap_err()).contains("No project spec found"));
+}
+
+/// The fixture's infrastructure repository declares its own skill directory.
+fn repository_skills_fixture() -> (Fixture, workspace::ProjectInfo) {
+    let f = v2_fixture();
+    let infra = f.source.join("Infra");
+    skill_source(
+        &infra.join("spec/skills"),
+        "infra-runbook",
+        "Run the infrastructure.",
+    );
+    commit(&infra, "Add a repository skill");
+    let mut manifest = v2_manifest();
+    manifest["repositories"][1]["skills"] = json!("spec/skills");
+    manifest["repositories"][0]["skills"] = json!("docs/skills");
+    files::write_json(&f.spec.join("project.json"), &manifest).unwrap();
+    commit(&f.spec, "Declare repository skills");
+    let info = f.clone();
+    (f, info)
+}
+
+#[test]
+fn repositories_own_skills_next_to_project_and_shared_skills() {
+    let (f, info) = repository_skills_fixture();
+    let infra = info.project_root.join("infra");
+    // The application's declared directory does not exist yet: it has no skills.
+    assert!(!info.project_root.join("Sample/docs").exists());
+    for base in [
+        info.project_root.clone(),
+        info.spec.clone(),
+        info.project_root.join("Sample"),
+        infra.clone(),
+    ] {
+        assert_eq!(
+            children(&base.join(".claude/skills")),
+            ["cspec-workspace", "infra-runbook"]
+        );
+    }
+    assert_eq!(git::run(&infra, ["status", "--porcelain"]).unwrap(), "");
+    let instructions = fs::read_to_string(info.project_root.join("AGENTS.md")).unwrap();
+    assert!(instructions.contains(
+        "repository's skill directory and are committed with it: `app` (`Sample/docs/skills`), `infra` (`infra/spec/skills`)."
+    ));
+    let list: Value = serde_json::from_str(&ok(f.cli(&[
+        "skill",
+        "list",
+        &info.spec.to_string_lossy(),
+        "--json",
+    ])))
+    .unwrap();
+    let runbook = list["active"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "infra-runbook")
+        .unwrap();
+    assert_eq!(runbook["scope"], "repository");
+    assert_eq!(runbook["repository"], "infra");
+    let context: Value = serde_json::from_str(&ok(f.cli(&[
+        "context",
+        &info.spec.to_string_lossy(),
+        "--json",
+    ])))
+    .unwrap();
+    assert_eq!(
+        context["skillSources"]["repositories"]["infra"],
+        json!(infra.join("spec/skills"))
+    );
+    assert_eq!(
+        context["project"]["repositories"][1]["skills"],
+        json!(infra.join("spec/skills"))
+    );
+
+    // Roles select repository skills like any other skill.
+    role_source(
+        &info,
+        "operations",
+        "description: Operate the system.\nrepositories: [infra]\nskills: [infra-runbook]\n",
+        "Operate.",
+    );
+    role_source(
+        &info,
+        "app-dev",
+        "description: Develop the application.\nskills: []\n",
+        "Develop.",
+    );
+    agents::sync(&info).unwrap();
+    let roles = info.project_root.join("roles");
+    assert_eq!(
+        children(&roles.join("operations/.agents/skills")),
+        ["cspec-workspace", "infra-runbook"]
+    );
+    assert_eq!(
+        children(&roles.join("app-dev/.agents/skills")),
+        ["cspec-workspace"]
+    );
+
+    // A collision with a project skill names both sources and changes nothing.
+    let output = infra.join(".agents/skills/infra-runbook/SKILL.md");
+    let before = fs::read(&output).unwrap();
+    let collision = skill_source(
+        &info.spec.join("spec/skills"),
+        "infra-runbook",
+        "Project copy.",
+    );
+    let error = format!("{:#}", agents::sync(&info).unwrap_err());
+    assert!(
+        error.contains("the project source and repository `infra`"),
+        "{error}"
+    );
+    assert_eq!(fs::read(&output).unwrap(), before);
+    fs::remove_dir_all(collision).unwrap();
+
+    // Creating a repository skill writes only that skill, creating missing directories.
+    let app = info.project_root.join("Sample");
+    let created: Value = serde_json::from_str(&ok(f.cli(&[
+        "skill",
+        "create",
+        "app-release",
+        "--scope",
+        "repository",
+        "--repository",
+        "app",
+        "--description",
+        "Release the application.",
+        "--location",
+        &info.spec.to_string_lossy(),
+        "--json",
+    ])))
+    .unwrap();
+    assert_eq!(created["repository"], "app");
+    assert_eq!(
+        created["source"],
+        json!(app.join("docs/skills/app-release"))
+    );
+    assert_eq!(
+        git::run(&app, ["status", "--porcelain", "--untracked-files=all"]).unwrap(),
+        "?? docs/skills/app-release/SKILL.md"
+    );
+    agents::sync(&info).unwrap();
+    assert!(infra.join(".claude/skills/app-release/SKILL.md").is_file());
+    assert!(
+        !f.cli(&[
+            "skill",
+            "create",
+            "other",
+            "--scope",
+            "repository",
+            "--repository",
+            "sample-spec",
+            "--description",
+            "Example.",
+            "--location",
+            &info.spec.to_string_lossy(),
+        ])
+        .status
+        .success()
+    );
+    assert!(skills::create(&info, "other", skills::Scope::Repository, None, "Example.").is_err());
+    assert!(
+        skills::create(
+            &info,
+            "other",
+            skills::Scope::Project,
+            Some("infra"),
+            "Example."
+        )
+        .is_err()
+    );
+
+    // Removing a repository skill removes only its copies.
+    fs::remove_dir_all(app.join("docs/skills/app-release")).unwrap();
+    agents::sync(&info).unwrap();
+    assert!(!infra.join(".claude/skills/app-release/SKILL.md").exists());
+    assert!(
+        infra
+            .join(".claude/skills/infra-runbook/SKILL.md")
+            .is_file()
+    );
+    agents::check(&info).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_repository_skill_directories_are_rejected() {
+    let (f, info) = repository_skills_fixture();
+    let infra = info.project_root.join("infra");
+    let elsewhere = f.root.join("elsewhere");
+    skill_source(
+        &elsewhere.join("skills"),
+        "outside",
+        "Outside the repository.",
+    );
+    fs::rename(infra.join("spec"), f.root.join("moved-spec")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, infra.join("spec")).unwrap();
+    let error = format!("{:#}", agents::sync(&info).unwrap_err());
+    assert!(error.contains("not a link"), "{error}");
+    assert!(!info.project_root.join(".claude/skills/outside").exists());
+}
+
+#[test]
+fn a_branch_that_tracks_a_generated_entry_point_takes_it_over() {
+    let f = v2_fixture();
+    let info = f.clone();
+    let infra = info.project_root.join("infra");
+    let generated = fs::read_to_string(infra.join("CLAUDE.md")).unwrap();
+    assert!(generated.starts_with("@AGENTS.md"));
+    git::run(&infra, ["checkout", "-q", "-b", "with-claude"]).unwrap();
+    fs::write(
+        infra.join("CLAUDE.md"),
+        "# Repository instructions for Claude\n",
+    )
+    .unwrap();
+    git::run(&infra, ["add", "--force", "CLAUDE.md"]).unwrap();
+    commit(&infra, "Track CLAUDE.md");
+    git::run(&infra, ["checkout", "-q", "main"]).unwrap();
+    agents::sync(&info).unwrap();
+    assert_eq!(
+        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        generated
+    );
+    // Git replaces the ignored generated file with the tracked one.
+    git::run(&infra, ["checkout", "-q", "with-claude"]).unwrap();
+    let tracked = "# Repository instructions for Claude\n";
+    assert_eq!(
+        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        tracked
+    );
+    let error = format!("{:#}", agents::check(&info).unwrap_err());
+    assert!(error.contains("Git now tracks"), "{error}");
+    let result = agents::sync(&info).unwrap();
+    assert_eq!(result.released, [infra.join("CLAUDE.md")]);
+    assert_eq!(
+        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        tracked
+    );
+    let local = fs::read_to_string(infra.join("CLAUDE.local.md")).unwrap();
+    assert!(local.starts_with("# CretSpec workspace"));
+    assert_eq!(git::run(&infra, ["status", "--porcelain"]).unwrap(), "");
+    agents::check(&info).unwrap();
+    // Back on a branch without it, CretSpec generates CLAUDE.md again.
+    git::run(&infra, ["checkout", "-q", "main"]).unwrap();
+    assert!(!infra.join("CLAUDE.md").exists());
+    agents::sync(&info).unwrap();
+    assert_eq!(
+        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
+        generated
+    );
+    assert!(!infra.join("CLAUDE.local.md").exists());
+    agents::check(&info).unwrap();
+}
+
+#[test]
+fn invalid_frontmatter_names_the_line_field_and_fix() {
+    let f = v2_fixture();
+    let info = f.clone();
+    role_source(
+        &info,
+        "operations",
+        "description: Run the company's IT: Microsoft 365 and Azure.\n",
+        "Operate.",
+    );
+    let error = format!("{:#}", agents::sync(&info).unwrap_err());
+    assert!(error.contains("operations.md"), "{error}");
+    assert!(error.contains("at line 3, field `description`"), "{error}");
+    assert!(
+        error.contains("Quote a value that contains a colon"),
+        "{error}"
+    );
+    role_source(
+        &info,
+        "operations",
+        "description: \"Run the company's IT: Microsoft 365 and Azure.\"\n",
+        "Operate.",
+    );
+    agents::sync(&info).unwrap();
+    let skill = skill_source(&info.spec.join("spec/skills"), "broken", "Body.");
+    fs::write(
+        skill.join("SKILL.md"),
+        "---\nname: broken\ndescription: Use it: always.\n---\n\nBody.\n",
+    )
+    .unwrap();
+    let error = format!("{:#}", agents::sync(&info).unwrap_err());
+    assert!(
+        error.contains("Invalid skill frontmatter at line 3, field `description`"),
+        "{error}"
+    );
 }
