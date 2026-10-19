@@ -2352,6 +2352,7 @@ fn repositories_own_skills_next_to_project_and_shared_skills() {
     assert!(instructions.contains(
         "repository's skill directory and are committed with it: `app` (`Sample/docs/skills`), `infra` (`infra/spec/skills`)."
     ));
+    assert!(!instructions.contains("needs a skill directory declared"));
     let list: Value = serde_json::from_str(&ok(f.cli(&[
         "skill",
         "list",
@@ -2516,6 +2517,8 @@ fn a_branch_that_tracks_a_generated_entry_point_takes_it_over() {
     let infra = info.project_root.join("infra");
     let generated = fs::read_to_string(infra.join("AGENTS.md")).unwrap();
     assert!(generated.starts_with("# CretSpec workspace"));
+    // Without a declared repository skill directory, the guidance says how to add one.
+    assert!(generated.contains("needs a skill directory declared for that repository"));
     git::run(&infra, ["checkout", "-q", "-b", "with-agents"]).unwrap();
     fs::write(infra.join("AGENTS.md"), "# Repository instructions\n").unwrap();
     git::run(&infra, ["add", "--force", "AGENTS.md"]).unwrap();

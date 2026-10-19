@@ -422,8 +422,17 @@ fn bootstrap(
             Some(relative(info, base, path).map(|path| format!("`{}` (`{path}`)", r.name)))
         })
         .collect::<Result<Vec<_>>>()?;
+    let declared = info
+        .manifest
+        .repositories
+        .as_ref()
+        .is_some_and(|r| !r.is_empty());
     let repository_policy = if repository_skills.is_empty() {
-        String::new()
+        if declared {
+            " A skill that belongs to one repository's own code or method needs a skill directory declared for that repository in `project.json` (`repositories[].skills`, for example `spec/skills`); propose that before creating it elsewhere.".into()
+        } else {
+            String::new()
+        }
     } else {
         format!(
             " Skills that belong to one repository's own code or method belong in that repository's skill directory and are committed with it: {}.",
