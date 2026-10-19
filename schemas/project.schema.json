@@ -71,7 +71,8 @@
               "url": { "type": "string", "minLength": 1, "description": "HTTPS, SSH or local Git source without credentials. Relative references resolve against the spec source." },
               "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "Directory in the project root. Defaults to name." },
               "purpose": { "$ref": "#/$defs/purpose" },
-              "profile": { "$ref": "#/$defs/profile" }
+              "profile": { "$ref": "#/$defs/profile" },
+              "skills": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*){0,7}$", "description": "The repository's own skill directory, relative to the repository, for example spec/skills. Requires CretSpec 0.6.0 or later." }
             }
           }
         },

@@ -107,14 +107,14 @@ Read-only workspace context: source paths, repositories with their branch and lo
 cspec skill list [location] [--json]
 ```
 
-Lists active built-in, project and shared skills. Working-tree mode reads local shared changes directly; pinned mode also provides a separate draft catalog. Invalid pinned-mode drafts are reported in `draftErrors`; invalid active skills fail the command. No files are changed and no scripts run.
+Lists active built-in, project, repository and shared skills, with the declaring repository of each repository skill. Working-tree mode reads local shared changes directly; pinned mode also provides a separate draft catalog. Invalid pinned-mode drafts are reported in `draftErrors`; invalid active skills fail the command. No files are changed and no scripts run.
 
 ```text
-cspec skill create <name> --scope <project|shared> --description <description>
-  [--location <location>] [--json]
+cspec skill create <name> --scope <project|shared|repository> [--repository <name>]
+  --description <description> [--location <location>] [--json]
 ```
 
-Creates a `SKILL.md` scaffold in the spec's `spec/skills/<name>/` or editable guidelines clone's `skills/<name>/`. Both scope and description are required, so automation cannot silently choose ownership. Returns the source path and next step. Refuses reserved/invalid names, active name collisions and existing destinations. It does not synchronize, commit, publish or adopt the new skill. Complete the source before activating it. The wrapped syntax describes one command.
+Creates a `SKILL.md` scaffold in the spec's `spec/skills/<name>/`, the editable guidelines clone's `skills/<name>/`, or, with `--scope repository --repository <name>`, the declared skill directory of that repository. Missing folders of a declared repository skill directory are created. Both scope and description are required, so automation cannot silently choose ownership. Returns the source path and next step. Refuses reserved/invalid names, active name collisions and existing destinations. It does not synchronize, commit, publish or adopt the new skill. Complete the source before activating it. The wrapped syntax describes one command.
 
 ```text
 cspec sync [location] [--json]

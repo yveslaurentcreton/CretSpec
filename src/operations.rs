@@ -65,6 +65,7 @@ fn declared_repository(spec: &Path, value: &str) -> Result<Repository> {
         url,
         purpose: None,
         profile: None,
+        skills: None,
     })
 }
 
