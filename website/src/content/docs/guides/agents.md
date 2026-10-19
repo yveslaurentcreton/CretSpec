@@ -68,9 +68,11 @@ Omit it to prepare all four integrations. Use `[]` to disable generated integrat
 | Agent | Instruction entry point | Skill directory |
 | --- | --- | --- |
 | Codex | `AGENTS.md`, or a generated `AGENTS.override.md` preserving existing instructions | `.agents/skills/` |
-| Claude Code | `CLAUDE.md`, or `CLAUDE.local.md` with workspace context alongside an existing file | `.claude/skills/` |
+| Claude Code | `AGENTS.md`, read by Claude Code 2.1.277 or later; CretSpec generates no `CLAUDE.md` | `.claude/skills/` |
 | GitHub Copilot in VS Code | `.github/instructions/cspec.instructions.md` | Shares a generated skills directory |
 | Cursor | `.cursor/rules/cspec.mdc` | Shares a generated skills directory |
+
+Claude Code reads `AGENTS.md` itself, but not `.agents/skills/`, so selecting it only adds `.claude/skills/`. Claude Code skips `AGENTS.md` when a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in its working directory or above it; doctor names such files.
 
 Copilot and Cursor can read both compatibility directories. CretSpec creates `.agents/skills/` when Codex is selected, `.claude/skills/` when Claude is selected, and only `.agents/skills/` when neither is selected. Selecting both Codex and Claude requires both directories; compatibility readers may show duplicate skills. Select the integrations you use if this occurs. Opening the outer multi-repository workspace may also surface skills from more than one repository; open the relevant repository to narrow discovery.
 
@@ -80,7 +82,7 @@ These are local filesystem integrations, not installations of the agents. Discov
 
 Generated instructions and full skill bundles are regular files, so Windows needs no symlink privileges. They are excluded locally through Git's `info/exclude`; public product builds have no private-context dependency. CretSpec does not change global agent settings.
 
-Edit a skill's source, then synchronize. Existing `AGENTS.md` and `CLAUDE.md` files are preserved. Conflicting override/local files, tracked generated files or edited output stop synchronization with a useful error. Preserve those edits in the appropriate source before removing the reported generated file and retrying.
+Edit a skill's source, then synchronize. Existing `AGENTS.md` and `CLAUDE.md` files are preserved. Conflicting override files, tracked generated files or edited output stop synchronization with a useful error. Preserve those edits in the appropriate source before removing the reported generated file and retrying.
 
 `cspec context --json` reports sources and readiness. `cspec project doctor --json` checks without repairing anything. A missing or stale integration can be repaired with `cspec sync`; a missing snapshot first needs `cspec project info`.
 

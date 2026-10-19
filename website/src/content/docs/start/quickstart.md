@@ -29,7 +29,6 @@ With a spec that names its product `Atlas` and points to a repository named `ai-
 ```text
 Atlas/
 ├── AGENTS.md            generated workspace instructions
-├── CLAUDE.md            generated Claude entry point
 ├── Atlas-spec/
 │   ├── project.json
 │   ├── spec/

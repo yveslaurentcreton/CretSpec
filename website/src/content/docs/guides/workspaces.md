@@ -88,7 +88,7 @@ Each repository is named after its folder, here `atlas-infra`. You can choose a 
 
 Project rules take precedence over shared guidelines. A project can, for example, keep its existing specification method and record that choice in its project rules.
 
-Let repositories commit only `AGENTS.md`. Every supported agent reads it, and CretSpec generates the local Claude Code entry point. A committed `CLAUDE.md` is respected, but makes Claude Code skip `AGENTS.md`; see [generated files](/CretSpec/reference/skills/#generated-files). Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
+Let repositories commit only `AGENTS.md`. Every supported agent reads it, so CretSpec generates no tool-specific entry point for Claude Code. A committed `CLAUDE.md` is respected, but makes Claude Code skip `AGENTS.md`, including the workspace context; see [generated files](/CretSpec/reference/skills/#generated-files). Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
 
 ## Define roles
 
@@ -114,7 +114,6 @@ Run `cspec sync`. Every role gets its own folder:
 ```text
 roles/app-dev/
 ├── AGENTS.md            shared context plus the role
-├── CLAUDE.md            imports AGENTS.md for Claude Code
 ├── .agents/skills/      the selected skills
 └── .claude/skills/
 ```
