@@ -2332,11 +2332,11 @@ fn repositories_own_skills_next_to_project_and_shared_skills() {
     .unwrap();
     assert_eq!(
         context["skillSources"]["repositories"]["infra"],
-        json!(infra.join("spec/skills"))
+        json!(infra.join("spec").join("skills"))
     );
     assert_eq!(
         context["project"]["repositories"][1]["skills"],
-        json!(infra.join("spec/skills"))
+        json!(infra.join("spec").join("skills"))
     );
 
     // Roles select repository skills like any other skill.
@@ -2399,7 +2399,7 @@ fn repositories_own_skills_next_to_project_and_shared_skills() {
     assert_eq!(created["repository"], "app");
     assert_eq!(
         created["source"],
-        json!(app.join("docs/skills/app-release"))
+        json!(app.join("docs").join("skills").join("app-release"))
     );
     assert_eq!(
         git::run(&app, ["status", "--porcelain", "--untracked-files=all"]).unwrap(),
@@ -2489,10 +2489,11 @@ fn a_branch_that_tracks_a_generated_entry_point_takes_it_over() {
     );
     // Git replaces the ignored generated file with the tracked one.
     git::run(&infra, ["checkout", "-q", "with-claude"]).unwrap();
-    let tracked = "# Repository instructions for Claude\n";
+    // Git may check the file out with CRLF line endings on Windows.
+    let tracked = fs::read_to_string(infra.join("CLAUDE.md")).unwrap();
     assert_eq!(
-        fs::read_to_string(infra.join("CLAUDE.md")).unwrap(),
-        tracked
+        tracked.replace("\r\n", "\n"),
+        "# Repository instructions for Claude\n"
     );
     let error = format!("{:#}", agents::check(&info).unwrap_err());
     assert!(error.contains("Git now tracks"), "{error}");
