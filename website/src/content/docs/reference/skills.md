@@ -27,11 +27,12 @@ The description explains when to use the skill. Detailed instructions and links 
 ## Sources and validation
 
 - Project skills: `<spec>/spec/skills/<name>/`, read from the working tree.
+- Repository skills: `<repository>/<skills>/<name>/` for each repository that declares a [`skills` directory](/CretSpec/reference/manifest/#schema-version-2), read from the working tree. Use them for knowledge that belongs to one repository's own code or method, so it stays with that repository in every workspace. A declared directory that does not exist yet has no skills. The directory and its parents must be real directories, not links.
 - Shared skills in working-tree mode: `<editable-guidelines>/skills/<name>/`, including uncommitted changes.
 - Shared skills in pinned mode: `<spec>/.local/guidelines/<commit>/skills/<name>/`; the editable source is a separate draft catalog.
 - Built-in `cspec-workspace`: embedded in the executable, reserved and versioned with CretSpec.
 
-Names contain 1–64 lowercase ASCII letters, digits and single hyphens, with no leading/trailing hyphen or Windows device name. The YAML `name` must match its directory. The description must be nonempty and at most 1024 characters. UTF-8 and CRLF are accepted, including folded YAML descriptions. Duplicate active names across project and shared sources are rejected instead of silently overriding one another.
+Names contain 1–64 lowercase ASCII letters, digits and single hyphens, with no leading/trailing hyphen or Windows device name. The YAML `name` must match its directory. The description must be nonempty and at most 1024 characters. UTF-8 and CRLF are accepted, including folded YAML descriptions. Duplicate active names across project, repository and shared sources are rejected instead of silently overriding one another; the error names both sources.
 
 The source directory may contain a `README.md` catalog alongside its skill directories. Each skill directory must contain `SKILL.md`. Resource names start with an ASCII letter/digit and contain only letters, digits, `.`, `_` or `-`; hidden names, device names, trailing dots and names differing only by case are rejected. Resources must be regular files and directories, with no symlinks. Limits are 128 KiB per `SKILL.md`, 256 files and 16 MiB per skill, eight nested directories, 128 skills per source and 64 MiB of active resources in total.
 
@@ -46,7 +47,7 @@ A role is one Markdown file in the spec's `spec/roles/<name>.md`, read from the 
 ```md
 ---
 name: operations
-description: Operate the system and maintain the backlog.
+description: "Operate the system: monitoring, incidents and the backlog."
 repositories: [atlas, infra]
 skills: []
 ---
@@ -57,7 +58,7 @@ Investigate system status only when asked. Record decisions in the specification
 | Field | Meaning |
 | --- | --- |
 | `name` | Must match the file name; same rules as skill names. |
-| `description` | Nonempty, at most 1024 characters. |
+| `description` | Nonempty, at most 1024 characters. Quote it when it contains a colon followed by a space; invalid YAML is reported with its line and field. |
 | `repositories` | Optional focus repositories by name, in priority order: the spec repository's name or a declared repository's name. |
 | `skills` | Optional active skill names. Omit to include every active skill; `[]` includes only the built-in workflow skill. |
 
@@ -70,6 +71,10 @@ Selected integrations are generated at the outer workspace, spec, every declared
 Workspace and repository entry points are role-neutral. They describe every repository with its purpose and list the available roles. A role folder contains an `AGENTS.md` with the shared context and the role, a `CLAUDE.md` that imports that `AGENTS.md` (Claude Code does not expand imports in parent folders' `CLAUDE.md` files without approval), Copilot and Cursor entry points with the shared context and the role, and the role's selected skills.
 
 When an existing `AGENTS.md` is present, its content is included in a generated `AGENTS.override.md`, because Codex reads the override instead of `AGENTS.md`. The original is unchanged. When the tracked `AGENTS.md` changes, the copy is stale until `cspec sync`; doctor names the changed file. Existing instructions have a 24 KiB input limit; larger inputs need consolidation. An existing `CLAUDE.md` is kept and decides how repository instructions reach Claude Code; the accompanying `CLAUDE.local.md` adds only the workspace context. Without an existing `CLAUDE.md`, the generated one imports `AGENTS.md`. A pre-existing conflicting local/override destination is never adopted or overwritten automatically.
+
+We recommend that repositories commit only `AGENTS.md`. Codex, GitHub Copilot and Cursor read it, and Claude Code 2.1.277 or later reads it too when no `CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or above it. CretSpec still generates a local `CLAUDE.md` that imports `AGENTS.md`, because Claude Code never reads the Codex `AGENTS.override.md` and some sessions cannot read `AGENTS.md` directly. A personal `CLAUDE.local.md` in such a repository stops Claude Code from reading `AGENTS.md`; set its **Project instructions** option to `claude-md-and-agents-md` instead.
+
+Switching branches can replace a generated file with a tracked one, for example when only one branch tracks `CLAUDE.md`: Git overwrites the excluded file. Sync then stops generating that path, keeps the tracked file and generates the alternative, such as `CLAUDE.local.md`; doctor reports it until then. Back on a branch without the tracked file, sync generates it again. A tracked file that still contains generated content was added to Git by mistake and stops sync until it is untracked.
 
 The spec's ignored `.local/` contains:
 
@@ -91,13 +96,13 @@ The new JSON responses have `schemaVersion: 1`. Errors go to stderr and command 
 | --- | --- |
 | `context --json` | `schemaVersion`, `cliVersion`, `project`, `instructionSources`, `skillSources`, `skills`, `integration`, `compatibilityNotice`, `roleSource`, `roles`, `roleErrors`, `repositoryStates`, `undeclaredRepositories`, and `role` with `--role` |
 | `skill list --json` | `schemaVersion`, `active`, `sharedDrafts`, `draftErrors` |
-| `skill create ... --json` | `schemaVersion`, `name`, `scope`, `source`, `nextStep` |
-| `sync --json` | `schemaVersion`, `written`, `removed`, `unchanged`, `compatibilityNotice` |
+| `skill create ... --json` | `schemaVersion`, `name`, `scope`, `repository`, `source`, `nextStep` |
+| `sync --json` | `schemaVersion`, `written`, `removed`, `unchanged`, `released`, `compatibilityNotice` |
 
-`project` has the same fields as `project info`. `skillSources` has `project`, `shared` and `activeShared` paths. Skills have `name`, `description`, `scope` (`project`, `shared` or `builtin`) and `source`; the built-in source is `null` because it is embedded. In working-tree mode, `shared` and `activeShared` point to the same source and `sharedDrafts` is empty. In pinned mode, working-copy entries are a separate editable catalog and may match adopted skills.
+`project` has the same fields as `project info`. `skillSources` has `project`, `shared` and `activeShared` paths, and `repositories` mapping each repository with a declared skill directory to its path. Skills have `name`, `description`, `scope` (`project`, `shared`, `repository` or `builtin`), `repository` for repository skills, and `source`; the built-in source is `null` because it is embedded. In working-tree mode, `shared` and `activeShared` point to the same source and `sharedDrafts` is empty. In pinned mode, working-copy entries are a separate editable catalog and may match adopted skills.
 
 `project.lock` is `null` in working-tree mode. `project.guidelines` contains `mode`, `commit` (active HEAD), `branch`, `dirty`, `upstream`, `ahead` and `behind`. Branch and upstream may be `null`; divergence counts are `null` when unavailable. Counts use locally cached upstream refs and say nothing about remote freshness. With local changes, HEAD does not identify the exact active contents. Pinned snapshots have a detached HEAD and no upstream.
 
-`roles` lists each role's `name`, `description` and `entryPoint`; invalid role sources are reported in `roleErrors`. `repositoryStates` has `name`, `path`, `branch`, `head` and `dirty` for the spec repository and every declared repository. `undeclaredRepositories` lists Git repositories in the project root that the definition does not declare. `role` has `name`, `description`, `source`, `entryPoint`, `repositories` (`name`, `path`, `purpose`), `additionalDirectories`, `skills` and `instructions`.
+`roles` lists each role's `name`, `description` and `entryPoint`; invalid role sources are reported in `roleErrors`. `released` lists generated paths that Git now tracks with other content; sync kept them and stopped generating them. Repository entries in `project` include `skills` when declared. `repositoryStates` has `name`, `path`, `branch`, `head` and `dirty` for the spec repository and every declared repository. `undeclaredRepositories` lists Git repositories in the project root that the definition does not declare. `role` has `name`, `description`, `source`, `entryPoint`, `repositories` (`name`, `path`, `purpose`), `additionalDirectories`, `skills` and `instructions`.
 
 `integration` contains `ready` and `detail`. A context report can succeed with `ready: false`: the sources are readable but generated context needs attention. Use `project doctor --json` when a readiness failure must produce exit status 1. Filesystem access or invalid source errors still fail `context` itself.

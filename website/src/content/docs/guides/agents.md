@@ -24,11 +24,12 @@ For an existing workspace, run `cspec project info` once with the new executable
 
 ## Save an approach
 
-Ask your agent to turn a useful approach into a skill. If the intended scope is unclear, the workspace instructions direct it to ask whether the skill belongs to this project or should be shared. An ordinary agreement can stay in project rules or shared guidelines without becoming a skill.
+Ask your agent to turn a useful approach into a skill. If the intended scope is unclear, the workspace instructions direct it to ask whether the skill belongs to this project, to one of its repositories, or should be shared. An ordinary agreement can stay in project rules or shared guidelines without becoming a skill.
 
 | Scope | Editable source | When it becomes available |
 | --- | --- | --- |
 | Project | `Atlas-spec/spec/skills/<name>/` | After `cspec sync` |
+| Repository | The repository's declared skill directory, such as `atlas-api/spec/skills/<name>/` | After `cspec sync` |
 | Shared, working-tree mode | `ai-guidelines/skills/<name>/` | After `cspec sync`, including uncommitted changes |
 | Shared, pinned mode | `ai-guidelines/skills/<name>/` | After explicitly adopting the committed guidelines version |
 | Built-in | Included in the installed CretSpec executable | When its integrations are synchronized |
@@ -36,7 +37,10 @@ Ask your agent to turn a useful approach into a skill. If the intended scope is 
 ```sh
 cspec skill create query-validation --scope project --description "Validate this project's query inputs and expected results"
 cspec skill create rust-release --scope shared --description "Prepare and verify a native Rust CLI release"
+cspec skill create api-migrations --scope repository --repository atlas-api --description "Write and verify this API's database migrations"
 ```
+
+A repository skill belongs to one repository's own code or method. It is committed with that repository, so it travels along when the repository is part of another workspace. Declare the directory with [`skills`](/CretSpec/reference/manifest/#schema-version-2) in the repository's entry in `project.json`.
 
 These commands create a scaffold. Complete its `SKILL.md`, add any required resources, and review the instructions. They do not generate the finished workflow or execute scripts.
 

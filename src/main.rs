@@ -65,6 +65,9 @@ enum SkillCommand {
         name: String,
         #[arg(long, value_enum)]
         scope: skills::Scope,
+        /// The declaring repository, with --scope repository.
+        #[arg(long)]
+        repository: Option<String>,
         #[arg(long)]
         description: String,
         #[arg(long)]
@@ -261,6 +264,12 @@ fn execute(cli: Cli) -> Result<()> {
                     "Agent context synchronized: {} written, {} removed, {} unchanged.",
                     result.written, result.removed, result.unchanged
                 );
+                for path in result.released {
+                    println!(
+                        "Git now tracks {}; it is kept and no longer generated.",
+                        path.display()
+                    );
+                }
                 if let Some(notice) = result.compatibility_notice {
                     println!("{notice}");
                 }
@@ -277,7 +286,11 @@ fn execute(cli: Cli) -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&inventory)?);
                 } else {
                     for skill in inventory.active {
-                        println!("{} ({:?}): {}", skill.name, skill.scope, skill.description);
+                        let origin = match &skill.repository {
+                            Some(repository) => format!("repository {repository}"),
+                            None => format!("{:?}", skill.scope),
+                        };
+                        println!("{} ({origin}): {}", skill.name, skill.description);
                     }
                     for skill in inventory.shared_drafts {
                         println!(
@@ -294,13 +307,17 @@ fn execute(cli: Cli) -> Result<()> {
             SkillCommand::Create {
                 name,
                 scope,
+                repository,
                 description,
                 location: value,
                 json,
             } => {
                 let info = workspace::info(&location(value)?, false, &progress)?;
-                let source = skills::create(&info, &name, scope, &description)?;
-                let next = if scope == skills::Scope::Project || info.lock.is_none() {
+                let source =
+                    skills::create(&info, &name, scope, repository.as_deref(), &description)?;
+                let next = if scope == skills::Scope::Repository {
+                    "Complete SKILL.md and its resources, then run cspec sync. Commit the skill with the repository it belongs to."
+                } else if scope == skills::Scope::Project || info.lock.is_none() {
                     "Complete SKILL.md and its resources, then run cspec sync."
                 } else {
                     "Complete the shared source, publish it through your Git workflow, then explicitly adopt that guidelines version."
@@ -309,7 +326,7 @@ fn execute(cli: Cli) -> Result<()> {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(
-                            &serde_json::json!({"schemaVersion":1,"name":name,"scope":scope,"source":source,"nextStep":next})
+                            &serde_json::json!({"schemaVersion":1,"name":name,"scope":scope,"repository":repository,"source":source,"nextStep":next})
                         )?
                     );
                 } else {

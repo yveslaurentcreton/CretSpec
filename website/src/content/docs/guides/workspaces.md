@@ -83,10 +83,12 @@ Each repository is named after its folder, here `atlas-infra`. You can choose a 
 | Layer | Edit here | Agents receive it in |
 | --- | --- | --- |
 | Shared workspace | Active guidelines, the spec's `spec/project-rules.md` and the repository purposes in `project.json` | The workspace folder and every repository |
-| Repository | The repository's own tracked `AGENTS.md` and `CLAUDE.md` | That repository, unchanged |
+| Repository | The repository's own tracked `AGENTS.md` | That repository, unchanged |
 | Role | `spec/roles/<name>.md` in the specification | The role's folder under `roles/` |
 
-Project rules take precedence over shared guidelines. A project can, for example, keep its existing specification method and record that choice in its project rules. Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
+Project rules take precedence over shared guidelines. A project can, for example, keep its existing specification method and record that choice in its project rules.
+
+Let repositories commit only `AGENTS.md`. Every supported agent reads it, and CretSpec generates the local Claude Code entry point. A committed `CLAUDE.md` is respected, but makes Claude Code skip `AGENTS.md`; see [generated files](/CretSpec/reference/skills/#generated-files). Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
 
 ## Define roles
 
@@ -105,7 +107,7 @@ Keep application code and infrastructure changes in their own repositories.
 Check the infrastructure repository's branch and status before editing it.
 ```
 
-`repositories` lists the focus repositories by name, in priority order. `skills` selects active project or shared skills; omit it to include all of them. The built-in `cspec-workspace` skill is always included. The Markdown body describes the role's responsibilities and boundaries.
+`repositories` lists the focus repositories by name, in priority order. `skills` selects active project, repository or shared skills; omit it to include all of them. The built-in `cspec-workspace` skill is always included. The Markdown body describes the role's responsibilities and boundaries.
 
 Run `cspec sync`. Every role gets its own folder:
 
