@@ -13,6 +13,18 @@ CretSpec connects ordinary Git repositories. The specification is the starting p
 
 A workspace can [combine several repositories](/CretSpec/guides/workspaces/), such as an application and its infrastructure, and the specification can live inside a code repository.
 
+## Where knowledge lives
+
+Knowledge has three levels. Put it at the narrowest level that owns it.
+
+| Level | Repository | Rules and agreements | Skills | Specification |
+| --- | --- | --- | --- | --- |
+| Shared | The AI guidelines | `guidelines/` and technology `profiles/` | `skills/` | The specification method, not concrete specs |
+| Workspace | The spec | `spec/project-rules.md`, which takes precedence over shared guidance | `spec/skills/` | `spec/`: vision, scope, decisions, requirements, roadmap and stories |
+| Repository | A declared member repository | Its own tracked `AGENTS.md` | Its declared skill directory, such as `spec/skills/` | Its own documents, which CretSpec does not manage; project rules can make them authoritative for that repository |
+
+Ask whether knowledge applies to all your work, to this workspace, or to one repository's own code and method; the last kind travels with that repository to every workspace that includes it. [Roles](/CretSpec/guides/workspaces/#define-roles) are not a fourth level: they live in the spec and add a focus to the same knowledge. Generated instructions and skill copies are derived from these sources and are never edited.
+
 `project.json` belongs in the spec. It names the code and guidelines sources, a guidelines branch and a profile. New projects use that editable guidelines checkout directly. An optional `guidelines.lock.json` selects an exact commit instead.
 
 ## Local guidelines by default

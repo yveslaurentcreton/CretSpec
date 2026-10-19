@@ -14,7 +14,7 @@ Apply the active specification method and selected technology profiles. Project 
 When asked to remember an approach, first decide whether it is an agreement, a project decision or a repeatable skill. An agreement belongs in the appropriate guidelines or project rules; it does not automatically need a skill.
 
 - Project-specific skills belong in the spec's `spec/skills/<name>/`.
-- Skills that belong to one repository's own code or method belong in that repository's skill directory, when context reports one under `skillSources.repositories`. They are committed with that repository and travel with it to other workspaces.
+- Skills that belong to one repository's own code or method belong in that repository's skill directory, when context reports one under `skillSources.repositories`. They are committed with that repository and travel with it to other workspaces. When that repository has no declared skill directory, propose adding `"skills": "spec/skills"` (or another directory) to its entry in `project.json` before creating the skill elsewhere.
 - Reusable skills belong in the editable guidelines repository's `skills/<name>/`.
 - If the intended scope is already clear, use it. Otherwise ask one concise question: should this be specific to this project (or one of its repositories) or shared across projects? Explain the proposed scope using the user's example.
 
@@ -26,7 +26,7 @@ In `pinned` mode, shared rules and skills use the locked snapshot. Shared drafts
 
 ## Roles
 
-A role gives a conversation a specific focus. Role sources are `spec/roles/<name>.md` in the spec; `cspec sync` generates a folder per role under `roles/` in the workspace. If you were started in a role folder, follow its role instructions. When the user asks you to take on a role elsewhere, run `cspec context --role <name> --json` and follow the returned instructions and focus repositories. Do not edit generated role folders, and never switch roles by changing shared instruction files. Roles are working agreements, not permissions: confirm before changes outside the role's responsibilities or with external effects.
+A role gives a conversation a specific focus. Role sources are `spec/roles/<name>.md` in the spec; `cspec sync` generates a folder per role under `roles/` in the workspace. Roles see every skill unless their source selects a subset. If you were started in a role folder, follow its role instructions. When the user asks you to take on a role elsewhere, run `cspec context --role <name> --json` and follow the returned instructions and focus repositories. Do not edit generated role folders, and never switch roles by changing shared instruction files. Roles are working agreements, not permissions: confirm before changes outside the role's responsibilities or with external effects.
 
 ## CLI use
 

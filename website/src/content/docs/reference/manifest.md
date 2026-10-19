@@ -26,7 +26,7 @@ Commit `project.json` in the spec repository root, alongside a `spec/` directory
 | `guidelines.ref` | Branch name in working-tree mode. In pinned mode, a locally resolvable tag or commit; prefer immutable tags. Starts with a letter/digit and contains only letters, digits, `.`, `_`, `/` or `-`. |
 | `guidelines.mode` | Optional `workingTree` or `pinned`. Without it, lock presence selects pinned mode; no lock selects working-tree mode. |
 | `profile` | Selects `profiles/<profile>.md` in the active guidelines source. Starts with a letter, followed by letters, digits, `_` or `-`. |
-| `agents` | Optional array of unique `codex`, `claude`, `copilot`, `cursor` values. Omission selects all four; `[]` disables generated integrations. |
+| `agents` | Optional array of unique `codex`, `claude`, `copilot`, `cursor` values. Omission selects all four; `[]` disables generated integrations. Every selection uses the generated `AGENTS.md`; `claude` adds only `.claude/skills/`. See [integrations](/CretSpec/guides/agents/#choose-integrations). |
 
 Spec and guidelines folder names come from their repository basenames, with one trailing `.git` removed. The code folder uses `name`. All three must be distinct, ignoring case, and use portable names.
 

@@ -24,7 +24,13 @@ For an existing workspace, run `cspec project info` once with the new executable
 
 ## Save an approach
 
-Ask your agent to turn a useful approach into a skill. If the intended scope is unclear, the workspace instructions direct it to ask whether the skill belongs to this project, to one of its repositories, or should be shared. An ordinary agreement can stay in project rules or shared guidelines without becoming a skill.
+Ask your agent to turn a useful approach into a skill. The workspace instructions and the built-in `cspec-workspace` skill tell it where the skill belongs:
+
+- One repository's own code or method: that repository's skill directory. When the repository has none yet, the agent proposes declaring one in `project.json`.
+- This project or workspace: the spec.
+- Useful across projects: the shared guidelines.
+
+If the intended scope is unclear, the agent asks one question. An ordinary agreement can stay in project rules or shared guidelines without becoming a skill. See [where knowledge lives](/CretSpec/start/concepts/#where-knowledge-lives).
 
 | Scope | Editable source | When it becomes available |
 | --- | --- | --- |
