@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.6.0...v0.7.0) (2026-10-19)
+
+
+### Features
+
+* explain how to add a repository skill directory ([579bf77](https://github.com/yveslaurentcreton/CretSpec/commit/579bf77668bf5e9608a625e0b091bd729c3e8370))
+* use AGENTS.md as the only instruction entry point ([0dabd03](https://github.com/yveslaurentcreton/CretSpec/commit/0dabd0330086491960247f757ba5b4765f71200b))
+* use AGENTS.md as the only instruction entry point ([b4ac3ed](https://github.com/yveslaurentcreton/CretSpec/commit/b4ac3ed4c4439b37add06e47ff077bbf92580161))
+
 ## [0.6.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.5.0...v0.6.0) (2026-10-19)
 
 
