@@ -5,7 +5,6 @@
 
 ### Features
 
-* let repositories own skills ([91fb408](https://github.com/yveslaurentcreton/CretSpec/commit/91fb4080d7676e74a7df600965dc368c0aeea83b))
 * let repositories own skills ([4fd015f](https://github.com/yveslaurentcreton/CretSpec/commit/4fd015f73d1e28ced7b887604a8b010e48af48b6))
 
 
