@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.5.0...v0.6.0) (2026-10-19)
+
+
+### Features
+
+* let repositories own skills ([91fb408](https://github.com/yveslaurentcreton/CretSpec/commit/91fb4080d7676e74a7df600965dc368c0aeea83b))
+* let repositories own skills ([4fd015f](https://github.com/yveslaurentcreton/CretSpec/commit/4fd015f73d1e28ced7b887604a8b010e48af48b6))
+
+
+### Bug Fixes
+
+* build repository skill paths with native separators ([78e426d](https://github.com/yveslaurentcreton/CretSpec/commit/78e426d648da5d61f780581192ebe3dc3908e123))
+
 ## [0.5.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.4.0...v0.5.0) (2026-10-17)
 
 
