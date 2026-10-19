@@ -20,6 +20,8 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 | Existing `spec/` stops initialization | Add `--existing-spec` to keep it and write only `project.json`. |
 | Invalid or unknown role | Check the role file's frontmatter, repository names and skill names, then run `cspec sync`. |
 | Role cannot write to a repository | The role folder is the agent's working directory. Add the focus repositories as additional directories in your host; `cspec context --role <name>` lists them. |
+| Claude Code ignores the workspace instructions | Doctor names the `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` that makes it skip `AGENTS.md`. Commit only `AGENTS.md`, or set Claude Code's **Project instructions** to `claude-md-and-agents-md`. Claude Code 2.1.277 or later is required. |
+| Claude Code shows skills a role did not select | Claude Code also loads skills from the directories above the role folder. Omit `skills` in the role, or accept the extra skills. |
 | Codex instructions exceed 32 KiB | Shorten the repository's `AGENTS.md` or the role instructions, or raise Codex's `project_doc_max_bytes`. |
 | Local context or snapshot missing | Run `cspec project info` to prepare it. |
 | Locked commit unavailable | Fetch tags in the editable guidelines clone. Check that the locked ref was published. |
