@@ -1,9 +1,9 @@
 ---
 title: Project and lock files
-description: Schema versions 1 and 2, repository resolution and generated context.
+description: Schema versions 1, 2 and 3, references, repository resolution and generated context.
 ---
 
-Commit `project.json` in the spec repository root, alongside a `spec/` directory. Schema version 1 names one code repository. [Schema version 2](#schema-version-2) names any number of repositories, and the spec repository may also contain the product code. Commit `guidelines.lock.json` only for pinned projects. JSON must be UTF-8; a UTF-8 BOM is accepted. Configuration files are limited to 128 KiB. Unknown fields and unsupported schema versions are rejected.
+Commit `project.json` in the spec repository root, alongside a `spec/` directory. Schema version 1 names one code repository. [Schema version 2](#schema-version-2) names any number of repositories, and the spec repository may also contain the product code. [Schema version 3](#schema-version-3) adds typed references to further guidelines and to other CretSpec projects. Commit `guidelines.lock.json` only for pinned projects. JSON must be UTF-8; a UTF-8 BOM is accepted. Configuration files are limited to 128 KiB. Unknown fields and unsupported schema versions are rejected.
 
 ## project.json
 
@@ -79,7 +79,61 @@ Existing clones are compared by repository identity, not by exact text. SSH and 
 
 Folder names of the spec, guidelines and every repository must be distinct, ignoring case. `roles` is reserved for generated [role entry points](/CretSpec/guides/workspaces/#define-roles). Two members cannot refer to the same repository. Every selected profile must exist in the active guidelines.
 
-To convert a version 1 project, set `schemaVersion` to `2`, move `code.repository` into a `repositories` entry with `path` set to the existing code folder, and move `profile` into that entry. Run `cspec sync`; generated files in the existing folder are taken over without conflicts. Older executables cannot read the converted file.
+## Schema version 3
+
+Version 3 is version 2 plus a `type` for each entry in `repositories`. A `code` entry is a repository as in version 2. A `guidelines` entry adds further guidance next to the project's own `guidelines`, for example a customer's own AI guidelines. A `project` entry references another CretSpec project, whose own references are resolved as well, so the workspace becomes a tree.
+
+```json
+{
+  "schemaVersion": 3,
+  "name": "ardeca-industries",
+  "specRepository": { "name": "ardeca-industries", "purpose": "Our specification for the customer." },
+  "repositories": [
+    { "name": "platform", "url": "git@ssh.dev.azure.com:v3/ardeca/Industries/platform", "purpose": "Infrastructure." },
+    { "name": "handbook", "type": "guidelines", "url": "git@ssh.dev.azure.com:v3/ardeca/Industries/handbook",
+      "ref": "main", "instructions": ["README.md", "standards/dotnet.md"], "scope": ["platform"] },
+    { "name": "ardisq", "type": "project", "url": "git@ssh.dev.azure.com:v3/ardeca/Industries/ardisq",
+      "purpose": "The customer's application, with its own specification." }
+  ],
+  "guidelines": { "repository": "git@github.com:your-account/ai-guidelines.git", "ref": "main" },
+  "agents": ["codex", "claude"]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | `3`. Everything from version 2 stays valid. |
+| `repositories[].type` | `code` (the default), `guidelines` or `project`. |
+| `repositories[].ref` | Guidelines, required: the branch of a working tree, or the selected version when `commit` pins it. |
+| `repositories[].commit` | Guidelines: the full commit ID that pins the reference. The ref must resolve to it. Pinned guidelines are read from a snapshot in the spec's `.local/guidelines/<commit>/`. |
+| `repositories[].scope` | Guidelines: names of repositories of this definition where the guidance applies. Omit it to apply the guidance everywhere. Naming a `project` entry includes everything that project brings. |
+| `repositories[].instructions` | Guidelines: up to 32 files to read, relative to the repository. Defaults to `README.md`, `guidelines/principles.md`, `guidelines/specification.md` and the profiles the project selects, as far as they exist. |
+| `repositories[].skills` | Code: the repository's own skill directory, as in version 2. Guidelines: the skill directory, by default `skills`. Not valid for projects. |
+| `repositories[].priority` | Guidelines and projects: an integer, by default `0`. A higher priority comes earlier in the precedence order. Ties keep declaration order, and the project's own `guidelines` come first. A project's priority moves it together with everything it brings. |
+
+`profile` is valid only for code. A `project` entry needs a repository with `project.json` and `spec/`; it may contain code as well. Version 2 definitions with any of these fields are rejected with a request to migrate. CretSpec 0.8.0 or later reads version 3.
+
+### The reference tree
+
+Clone and `attach --clone-missing` clone the whole tree into the workspace root, next to the other repositories. Each project contributes its own guidelines and repositories, and its referenced projects in turn. Relative URLs in a referenced project resolve against that project's own source.
+
+- A repository that appears more than once, recognized by its origin, is cloned once. Pinned guidelines at different commits each get their own snapshot.
+- A working tree has one branch. When two references ask for different branches of the same guidelines, the reference closest to the root decides and sync and doctor warn.
+- A folder name that a different repository already uses gets the referencing project's folder name as a prefix, for example `ardisq-handbook`.
+- A cycle, including a project that references itself directly or through other projects, stops with an error that names the path, before generated files are written.
+- A repository deeper in the tree that is missing, unreachable or invalid is reported as a warning; the rest of the workspace keeps working. Missing repositories that this definition declares itself still stop the command, as in version 2.
+
+### Precedence
+
+Each project's own rules come first, followed by its references in priority and declaration order. A referenced project is one entry in that order and expands into its own rules and references. The default order for the example is: the workspace's project rules, `ai-guidelines`, `handbook`, then `ardisq` with its own rules and guidelines. The consumer can thus override or extend a referenced project's rules in its own project rules.
+
+The same order decides skills with the same name: the source with the highest precedence wins, and sync and doctor warn which skill overrides which. Name collisions between the workspace's own spec, repository skill directories and its own `guidelines` still stop synchronization, as in version 2.
+
+### Convert to version 3
+
+Run `cspec project migrate` (or `--preview` first) to convert a version 2 definition. It only changes `schemaVersion`; generated context stays the same. Then add typed references and commit `project.json`. Older executables cannot read the migrated file.
+
+To convert a version 1 project to version 2, set `schemaVersion` to `2`, move `code.repository` into a `repositories` entry with `path` set to the existing code folder, and move `profile` into that entry. Run `cspec sync`; generated files in the existing folder are taken over without conflicts. Older executables cannot read the converted file.
 
 ## guidelines.lock.json
 
@@ -101,7 +155,8 @@ This lock selects guidelines only. Code and spec clone their normal default bran
 
 ```text
 Atlas-spec/.local/
-├── guidelines/<commit>/       pinned projects only
+├── guidelines/<commit>/       pinned guidelines, one snapshot per commit
+├── context/<folder>.md        context of each referenced project (schema version 3)
 ├── project.code-workspace    optional editor file
 ├── definition-update.json    present only during an update/recovery
 ├── agents-state.json         generated file ownership

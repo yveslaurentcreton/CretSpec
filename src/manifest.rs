@@ -5,6 +5,7 @@ use std::path::Path;
 
 /// A project definition. Schema version 1 names one code repository and a profile;
 /// schema version 2 names any number of repositories, each with an optional profile.
+/// Schema version 3 adds typed references to further guidelines and other projects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Manifest {
@@ -35,10 +36,13 @@ pub struct SpecRepository {
     pub profile: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Repository {
     pub name: String,
+    /// What the reference contains. Omitted means code; other types need schema version 3.
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<Kind>,
     pub url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -49,13 +53,50 @@ pub struct Repository {
     /// The repository's own skill directory, relative to the repository root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<String>,
+    /// Guidelines: the branch for a working tree, or the selected version when pinned.
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+    /// Guidelines: the exact commit that pins this reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// Guidelines: the repositories of this definition where the guidance applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Vec<String>>,
+    /// Guidelines and projects: a higher priority comes earlier in the precedence order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+    /// Guidelines: files to read, relative to the repository. Defaults to the CretAI layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Vec<String>>,
 }
 
 impl Repository {
     pub fn directory(&self) -> &str {
         self.path.as_deref().unwrap_or(&self.name)
     }
+
+    pub fn kind(&self) -> Kind {
+        self.kind.unwrap_or(Kind::Code)
+    }
 }
+
+/// The type of a repository reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Code,
+    Guidelines,
+    Project,
+}
+
+/// The newest supported definition schema.
+pub const CURRENT_SCHEMA: u32 = 3;
+/// The default instruction files of a guidelines repository.
+pub const GUIDELINE_INSTRUCTIONS: [&str; 3] = [
+    "README.md",
+    "guidelines/principles.md",
+    "guidelines/specification.md",
+];
 
 /// The directory inside the project root that contains generated role entry points.
 pub const ROLES_DIRECTORY: &str = "roles";
@@ -196,7 +237,8 @@ fn validate_purpose(purpose: Option<&str>, owner: &str) -> Result<()> {
     Ok(())
 }
 
-/// A relative path of portable, non-hidden directory names separated by `/`.
+/// A relative path of portable, non-hidden names separated by `/`, such as a skill
+/// directory or a guideline instruction file.
 pub fn valid_relative_directory(path: &str) -> bool {
     let segments: Vec<_> = path.split('/').collect();
     path.len() <= 255
@@ -204,6 +246,102 @@ pub fn valid_relative_directory(path: &str) -> bool {
         && segments
             .iter()
             .all(|segment| files::portable_name(segment) && !segment.starts_with('.'))
+}
+
+fn valid_commit(commit: &str) -> bool {
+    [40, 64].contains(&commit.len())
+        && commit
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+/// Checks the fields that belong to one reference type.
+fn validate_reference(
+    repository: &Repository,
+    schema_version: u32,
+    names: &[String],
+) -> Result<()> {
+    let name = &repository.name;
+    let typed = repository.kind.is_some()
+        || repository.reference.is_some()
+        || repository.commit.is_some()
+        || repository.scope.is_some()
+        || repository.priority.is_some()
+        || repository.instructions.is_some();
+    if typed && schema_version < 3 {
+        bail!(
+            "Repository {name} uses typed reference fields (type, ref, commit, scope, priority or instructions), which require schemaVersion 3. Run cspec project migrate first."
+        );
+    }
+    let kind = repository.kind();
+    let only = |present: bool, field: &str, allowed: &str| -> Result<()> {
+        if present {
+            bail!("Repository {name}: {field} is only valid for {allowed} references.");
+        }
+        Ok(())
+    };
+    only(
+        kind != Kind::Code && repository.profile.is_some(),
+        "profile",
+        "code",
+    )?;
+    only(
+        kind == Kind::Project && repository.skills.is_some(),
+        "skills",
+        "code and guidelines",
+    )?;
+    for (present, field) in [
+        (repository.reference.is_some(), "ref"),
+        (repository.commit.is_some(), "commit"),
+        (repository.scope.is_some(), "scope"),
+        (repository.instructions.is_some(), "instructions"),
+    ] {
+        only(kind != Kind::Guidelines && present, field, "guidelines")?;
+    }
+    only(
+        kind == Kind::Code && repository.priority.is_some(),
+        "priority",
+        "guidelines and project",
+    )?;
+    if kind == Kind::Guidelines {
+        if !repository.reference.as_deref().is_some_and(valid_ref) {
+            bail!(
+                "Guidelines reference {name} needs a valid ref: a branch, or the selected version when it is pinned."
+            );
+        }
+        if repository
+            .commit
+            .as_deref()
+            .is_some_and(|c| !valid_commit(c))
+        {
+            bail!("Guidelines reference {name} needs a full exact commit ID to pin it.");
+        }
+        if let Some(scope) = &repository.scope {
+            if scope.is_empty() || scope.len() > 64 {
+                bail!("The scope of {name} must name 1-64 repositories.");
+            }
+            for (index, target) in scope.iter().enumerate() {
+                if target == name || !names.contains(target) || scope[..index].contains(target) {
+                    bail!(
+                        "The scope of {name} must name distinct other repositories of this definition: {target}"
+                    );
+                }
+            }
+        }
+        if let Some(instructions) = &repository.instructions {
+            if instructions.is_empty() || instructions.len() > 32 {
+                bail!("Guidelines reference {name} lists 1-32 instruction files.");
+            }
+            for file in instructions {
+                if !valid_relative_directory(file) {
+                    bail!(
+                        "Instruction files of {name} must be relative paths of portable, non-hidden names: {file}"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_repositories(manifest: &Manifest) -> Result<()> {
@@ -218,7 +356,13 @@ fn validate_repositories(manifest: &Manifest) -> Result<()> {
     let mut names = vec![manifest.spec_name().to_owned()];
     let mut directories = vec![ROLES_DIRECTORY.to_owned()];
     validate_purpose(spec.purpose.as_deref(), "the spec repository")?;
+    let declared: Vec<String> = names
+        .iter()
+        .cloned()
+        .chain(repositories.iter().map(|r| r.name.clone()))
+        .collect();
     for repository in repositories {
+        validate_reference(repository, manifest.schema_version, &declared)?;
         validate_purpose(repository.purpose.as_deref(), &repository.name)?;
         repository::validate(&repository.url)?;
         let directory = repository.directory();
@@ -277,10 +421,11 @@ pub fn validate(manifest: &Manifest, lock: Option<&Lock>) -> Result<()> {
             }
             repository::validate(&code.repository)?;
         }
-        2 => {
+        2 | 3 => {
             if manifest.code.is_some() || manifest.profile.is_some() {
                 bail!(
-                    "Schema version 2 declares repositories instead of code, and profiles per repository instead of a top-level profile."
+                    "Schema version {} declares repositories instead of code, and profiles per repository instead of a top-level profile.",
+                    manifest.schema_version
                 );
             }
             validate_repositories(manifest)?;
@@ -288,7 +433,9 @@ pub fn validate(manifest: &Manifest, lock: Option<&Lock>) -> Result<()> {
                 bail!("Invalid profile.");
             }
         }
-        _ => bail!("Only schemaVersion 1 and 2 are supported."),
+        _ => bail!(
+            "Only schemaVersion 1, 2 and {CURRENT_SCHEMA} are supported. A newer definition needs a newer CretSpec."
+        ),
     }
     if !files::portable_name(&manifest.name) || !manifest.name.as_bytes()[0].is_ascii_alphabetic() {
         bail!("Invalid or non-portable project name.");
@@ -307,12 +454,7 @@ pub fn validate(manifest: &Manifest, lock: Option<&Lock>) -> Result<()> {
         _ => {}
     }
     if let Some(lock) = lock
-        && (lock.reference != manifest.guidelines.reference
-            || ![40, 64].contains(&lock.commit.len())
-            || !lock
-                .commit
-                .bytes()
-                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)))
+        && (lock.reference != manifest.guidelines.reference || !valid_commit(&lock.commit))
     {
         bail!("The lock must contain the same ref and a full exact commit ID.");
     }

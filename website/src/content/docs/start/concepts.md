@@ -23,6 +23,8 @@ Knowledge has three levels. Put it at the narrowest level that owns it.
 | Workspace | The spec | `spec/project-rules.md`, which takes precedence over shared guidance | `spec/skills/` | `spec/`: vision, scope, decisions, requirements, roadmap and stories |
 | Repository | A declared member repository | Its own tracked `AGENTS.md` | Its declared skill directory, such as `spec/skills/` | Its own documents, which CretSpec does not manage; project rules can make them authoritative for that repository |
 
+A workspace can also reference further guidelines and other CretSpec projects, for example a customer's own AI guidelines and their application with its own specification. Those keep their levels: the referenced project's rules and skills apply in its folders, below your own project rules, unless you give them a higher priority. See [reference guidelines and projects](/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects).
+
 Ask whether knowledge applies to all your work, to this workspace, or to one repository's own code and method; the last kind travels with that repository to every workspace that includes it. [Roles](/CretSpec/guides/workspaces/#define-roles) are not a fourth level: they live in the spec and add a focus to the same knowledge. Generated instructions and skill copies are derived from these sources and are never edited.
 
 `project.json` belongs in the spec. It names the code and guidelines sources, a guidelines branch and a profile. New projects use that editable guidelines checkout directly. An optional `guidelines.lock.json` selects an exact commit instead.
