@@ -131,6 +131,12 @@ enum ProjectCommand {
     },
     /// Show the project definition and prepare missing local context.
     Info { location: Option<PathBuf> },
+    /// Convert the definition to the newest schema without changing its generated context.
+    Migrate {
+        location: Option<PathBuf>,
+        #[arg(long)]
+        preview: bool,
+    },
     /// Generate and open an editor workspace inside the spec.
     Open(OpenArgs),
 }
@@ -273,6 +279,9 @@ fn execute(cli: Cli) -> Result<()> {
                 if let Some(notice) = result.compatibility_notice {
                     println!("{notice}");
                 }
+                for warning in result.warnings {
+                    println!("Warning: {warning}");
+                }
             }
         }
         Commands::Skill { command } => match command {
@@ -286,9 +295,9 @@ fn execute(cli: Cli) -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&inventory)?);
                 } else {
                     for skill in inventory.active {
-                        let origin = match &skill.repository {
-                            Some(repository) => format!("repository {repository}"),
-                            None => format!("{:?}", skill.scope),
+                        let origin = match (&skill.repository, &skill.project) {
+                            (None, None) => format!("{:?}", skill.scope),
+                            _ => skill.origin(),
                         };
                         println!("{} ({origin}): {}", skill.name, skill.description);
                     }
@@ -301,6 +310,9 @@ fn execute(cli: Cli) -> Result<()> {
                     }
                     for error in inventory.draft_errors {
                         eprintln!("Shared draft issue: {error}");
+                    }
+                    for warning in inventory.warnings {
+                        eprintln!("Warning: {warning}");
                     }
                 }
             }
@@ -444,6 +456,25 @@ fn execute(cli: Cli) -> Result<()> {
                     println!(
                         "Warning: undeclared Git repository in the project root: {}",
                         path.display()
+                    );
+                }
+            }
+            ProjectCommand::Migrate {
+                location: value,
+                preview,
+            } => {
+                let (from, to) = operations::migrate(&location(value)?, preview)?;
+                if from == to {
+                    println!(
+                        "The definition already uses schemaVersion {to}. Nothing was changed."
+                    );
+                } else if preview {
+                    println!(
+                        "Preview: schemaVersion {from} -> {to}. The definition was not changed."
+                    );
+                } else {
+                    println!(
+                        "Definition migrated: schemaVersion {from} -> {to}. Review and commit project.json."
                     );
                 }
             }

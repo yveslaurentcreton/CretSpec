@@ -5,9 +5,9 @@ description: Work in a CretSpec workspace, inspect its specification and active 
 
 # CretSpec workspace
 
-Run `cspec context --json` from the workspace or a sibling repository. Its versioned output identifies the spec, every declared repository with its purpose and local state, editable guidelines, active working tree or pinned snapshot, instruction sources, skill source directories and roles. Read the relevant sources; do not infer repository roles from names. Keep each change in the repository that owns it. If context is unavailable, use `cspec project doctor --json` and explain the reported problem before changing configuration.
+Run `cspec context --json` from the workspace or a sibling repository. Its versioned output identifies the spec, every declared repository with its purpose and local state, referenced guidelines and projects, editable guidelines, active working tree or pinned snapshot, instruction sources, skill source directories and roles. Read the relevant sources; do not infer repository roles from names. Keep each change in the repository that owns it. If context is unavailable, use `cspec project doctor --json` and explain the reported problem before changing configuration.
 
-Apply the active specification method and selected technology profiles. Project rules take precedence over shared guidance. Keep concrete requirements, milestones, stories, decisions and verification evidence in the spec. Record checks actually performed and distinguish proposed work from agreed scope. The CLI does not determine whether a story is complete.
+Apply the active specification method and selected technology profiles. Project rules take precedence over shared guidance; with references, follow the precedence order in the generated instructions. Keep concrete requirements, milestones, stories, decisions and verification evidence in the spec. Record checks actually performed and distinguish proposed work from agreed scope. The CLI does not determine whether a story is complete.
 
 ## Preserve reusable knowledge
 
@@ -23,6 +23,12 @@ Use `cspec skill list --json` to inspect active skills, their scope and declarin
 Check `project.guidelines.mode` in context. In `workingTree` mode, shared guidelines use the editable repository directly, including uncommitted changes. Read new local rules immediately; run `cspec sync` after completing or editing any skill to refresh generated copies. Use ordinary Git fetch/pull/commit/push to exchange changes between projects. Opening a folder or running context, info, doctor or sync does not fetch, pull or switch branches.
 
 In `pinned` mode, shared rules and skills use the locked snapshot. Shared drafts become active after explicit adoption with `cspec guidelines update <reference>`. To use the current editable branch instead, preview `cspec guidelines unlock --preview` and apply `cspec guidelines unlock` when requested. New projects default to working-tree mode; existing locks remain pinned. Do not change another project's mode without authorization. Creating a skill does not authorize publication. Never edit snapshots or generated copies.
+
+## Referenced guidelines and projects
+
+A workspace can reference further guidelines and other CretSpec projects (`type` `guidelines` or `project` in `project.json`, schema version 3). Context reports them under `project.tree` and lists the instruction sources in precedence order under `instructionLayers`. Follow that order: an earlier source overrides a later one, and a source with `appliesIn` applies only in those folders. Read a referenced project's context file before working in its folders, and follow its own specification method there.
+
+Referenced projects and guidelines belong to their owners. Record your own overrides and additions in the workspace's project rules or spec, not in their repositories, unless the user asks for a change there. New skills belong to the workspace's own sources. Report `referenceWarnings`, such as missing repositories or overridden skills, instead of working around them; `cspec project attach <spec> --clone-missing` clones missing repositories of the tree.
 
 ## Roles
 

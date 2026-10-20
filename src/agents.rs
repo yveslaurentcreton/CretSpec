@@ -1,8 +1,9 @@
 use crate::{
     files, git,
-    manifest::{Agent, ROLES_DIRECTORY},
+    manifest::{Agent, Kind, ROLES_DIRECTORY},
     roles::{self, Role},
     skills::{self, Resource},
+    tree::CONTEXT_DIRECTORY,
     workspace::{self, ProjectInfo},
 };
 use anyhow::{Context, Result, bail};
@@ -55,6 +56,8 @@ pub struct SyncResult {
     /// branch switch. CretSpec stopped owning them without changing them.
     pub released: Vec<PathBuf>,
     pub compatibility_notice: Option<String>,
+    /// Problems in referenced branches of the tree and overridden skills.
+    pub warnings: Vec<String>,
 }
 
 fn stamp(resource: &Resource) -> Stamp {
@@ -87,6 +90,10 @@ fn anchors(info: &ProjectInfo, roles: Vec<Role>) -> Vec<Anchor> {
             .iter()
             .map(|r| (r.anchor.clone(), r.path.clone())),
     )
+    .chain(info.nested_folders().into_iter().filter_map(|(_, path)| {
+        let directory = path.file_name()?.to_string_lossy();
+        Some((format!("repo:{directory}"), path.to_owned()))
+    }))
     .map(|(name, base)| Anchor {
         name,
         base,
@@ -105,12 +112,30 @@ struct Target {
     path: PathBuf,
     git: bool,
     role: bool,
+    /// A context file inside the spec's ignored `.local/`.
+    local: bool,
 }
 
 /// Resolves an ownership key. Keys of removed repositories and roles still resolve,
 /// so their generated files can be removed after verification.
 fn target(info: &ProjectInfo, key: &str) -> Result<Target> {
     let (anchor, relative) = key.split_once('/').context("Invalid generated file key")?;
+    if anchor == CONTEXT_DIRECTORY {
+        if !relative
+            .strip_suffix(".md")
+            .is_some_and(|name| files::portable_name(name) && !name.starts_with('.'))
+        {
+            bail!("Invalid generated file path: {key}");
+        }
+        let base = info.spec.join(".local").join(CONTEXT_DIRECTORY);
+        return Ok(Target {
+            path: base.join(relative),
+            base,
+            git: false,
+            role: false,
+            local: true,
+        });
+    }
     let (base, git, role) = match anchor {
         "root" => (info.project_root.clone(), false, false),
         "spec" => (info.spec.clone(), true, false),
@@ -158,6 +183,7 @@ fn target(info: &ProjectInfo, key: &str) -> Result<Target> {
         base,
         git,
         role,
+        local: false,
     })
 }
 
@@ -318,6 +344,172 @@ pub fn instruction_sources(info: &ProjectInfo) -> Vec<PathBuf> {
     .collect()
 }
 
+/// One source of instructions in a project's precedence order.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Layer {
+    pub label: String,
+    /// Files to read: project rules or guidelines.
+    pub files: Vec<PathBuf>,
+    /// The generated context file of a referenced project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<PathBuf>,
+    /// The folders where the source applies; absent means everywhere the project applies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applies_in: Option<BTreeSet<PathBuf>>,
+}
+
+/// A project's instruction sources from highest to lowest precedence: its own rules,
+/// then its guidelines and referenced projects by priority and declaration order.
+pub fn layers(info: &ProjectInfo, project: usize) -> Vec<Layer> {
+    let tree = &info.tree;
+    let spec = if project == 0 {
+        info.spec.clone()
+    } else {
+        tree.projects[project].path.clone()
+    };
+    let rules = spec.join("spec/project-rules.md");
+    let mut result = vec![Layer {
+        label: "Project rules".into(),
+        files: rules.is_file().then_some(rules).into_iter().collect(),
+        context: None,
+        applies_in: None,
+    }];
+    for index in tree.ordered(project) {
+        let reference = &tree.references[index];
+        match (reference.kind, reference.child) {
+            (Kind::Guidelines, _) => {
+                // The workspace's own guidelines may be a proposed version during adoption.
+                let active = if project == 0 && reference.primary {
+                    info.active_guidelines.clone()
+                } else {
+                    reference.active.clone()
+                };
+                result.push(Layer {
+                    label: reference_label(reference),
+                    files: tree.instruction_files(index, &active),
+                    context: None,
+                    applies_in: tree.scoped_folders(index),
+                });
+            }
+            (Kind::Project, Some(child)) => result.push(Layer {
+                label: reference_label(reference),
+                files: Vec::new(),
+                context: tree.projects[child].context.clone(),
+                applies_in: Some(tree.folders(child)),
+            }),
+            _ => {}
+        }
+    }
+    result
+}
+
+fn reference_label(reference: &crate::tree::Reference) -> String {
+    match reference.kind {
+        Kind::Guidelines if reference.primary => format!(
+            "Shared guidelines `{}`",
+            reference
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ),
+        Kind::Guidelines => format!("Guidelines `{}`", reference.name),
+        Kind::Project => format!("Referenced project `{}`", reference.name),
+        Kind::Code => format!("Repository `{}`", reference.name),
+    }
+}
+
+fn guidelines_state(reference: &crate::tree::Reference) -> String {
+    match (&reference.commit, &reference.reference) {
+        (Some(commit), Some(selected)) => format!("; pinned `{selected}` (commit `{commit}`)"),
+        (None, Some(branch)) => format!("; working tree (branch `{branch}`)"),
+        _ => String::new(),
+    }
+}
+
+/// Renders a precedence-ordered source list. Overview anchors, such as the workspace
+/// root, list every source with the folders it applies in; other folders list only the
+/// sources that apply there.
+fn precedence_list(
+    info: &ProjectInfo,
+    project: usize,
+    base: &Path,
+    overview: bool,
+) -> Result<String> {
+    let mut lines = Vec::new();
+    for layer in layers(info, project) {
+        let restricted = layer.applies_in.as_ref();
+        if !overview && restricted.is_some_and(|set| !set.iter().any(|f| files::same(f, base))) {
+            continue;
+        }
+        let body = match &layer.context {
+            Some(file) => format!("read its context file `{}`", relative(info, base, file)?),
+            None if layer.files.is_empty() => continue,
+            None => layer
+                .files
+                .iter()
+                .map(|p| Ok(format!("`{}`", relative(info, base, p)?)))
+                .collect::<Result<Vec<_>>>()?
+                .join(", "),
+        };
+        let scope = match restricted.filter(|_| overview) {
+            Some(set) => format!(
+                " (applies in {})",
+                set.iter()
+                    .map(|p| Ok(format!("`{}`", relative(info, base, p)?)))
+                    .collect::<Result<Vec<_>>>()?
+                    .join(", ")
+            ),
+            None => String::new(),
+        };
+        lines.push(format!(
+            "{}. {}{scope}: {body}",
+            lines.len() + 1,
+            layer.label
+        ));
+    }
+    Ok(lines.join("\n"))
+}
+
+const PRECEDENCE: &str = "Read the sources below. They are listed from highest to lowest precedence; where they conflict, an earlier source overrides a later one:";
+
+/// The generated context file of a referenced project. Paths are relative to the
+/// workspace root.
+fn context_file(info: &ProjectInfo, project: usize) -> Result<String> {
+    let tree = &info.tree;
+    let child = &tree.projects[project];
+    let root = &info.project_root;
+    let mut map = vec![format!(
+        "- Project definition and specification: `{}`{}",
+        relative(info, root, &child.path)?,
+        described(child.purpose.as_deref(), None)
+    )];
+    for reference in tree.references.iter().filter(|r| r.project == project) {
+        let state = if reference.kind == Kind::Guidelines {
+            guidelines_state(reference)
+        } else {
+            String::new()
+        };
+        map.push(format!(
+            "- {}: `{}`{}{state}",
+            reference_label(reference),
+            relative(info, root, &reference.path)?,
+            described(reference.purpose.as_deref(), reference.profile.as_deref())
+        ));
+    }
+    Ok(format!(
+        "# Referenced project `{}`\n\nGenerated by CretSpec {} for the `{}` workspace; run `cspec sync` to refresh it. Paths below are relative to the workspace root, `{}`. This is the context that `{}` gives when it is opened on its own; the workspace's instructions say where it stands in their precedence order.\n\n{}\n\n{PRECEDENCE}\n\n{}\n",
+        child.name,
+        env!("CARGO_PKG_VERSION"),
+        info.manifest.name,
+        root.display(),
+        child.name,
+        map.join("\n"),
+        precedence_list(info, project, root, true)?
+    ))
+}
+
 fn described(purpose: Option<&str>, profile: Option<&str>) -> String {
     let mut text = match purpose {
         Some(purpose) => format!(": {purpose}"),
@@ -351,11 +543,43 @@ fn repository_map(info: &ProjectInfo, base: &Path) -> Result<String> {
             described(spec.purpose.as_deref(), spec.profile.as_deref())
         ));
         for repository in &info.repositories {
+            let reference = info
+                .tree
+                .references
+                .iter()
+                .find(|r| r.project == 0 && !r.primary && r.name == repository.name);
+            let (label, state) = match reference {
+                Some(reference) if reference.kind != Kind::Code => (
+                    reference_label(reference),
+                    if reference.kind == Kind::Guidelines {
+                        guidelines_state(reference)
+                    } else {
+                        String::new()
+                    },
+                ),
+                _ => (format!("Repository `{}`", repository.name), String::new()),
+            };
             lines.push(format!(
-                "- Repository `{}`: `{}`{}",
-                repository.name,
+                "- {label}: `{}`{}{state}",
                 relative(info, base, &repository.path)?,
                 described(repository.purpose.as_deref(), repository.profile.as_deref())
+            ));
+        }
+        for (_, path) in info.nested_folders() {
+            let Some(reference) = info
+                .tree
+                .references
+                .iter()
+                .find(|r| r.project != 0 && files::same(&r.path, path))
+            else {
+                continue;
+            };
+            lines.push(format!(
+                "- {} of referenced project `{}`: `{}`{}",
+                reference_label(reference),
+                info.tree.projects[reference.project].name,
+                relative(info, base, path)?,
+                described(reference.purpose.as_deref(), reference.profile.as_deref())
             ));
         }
     }
@@ -372,11 +596,22 @@ fn bootstrap(
     roles: &[Role],
     role: Option<&Role>,
 ) -> Result<String> {
-    let sources = instruction_sources(info)
-        .iter()
-        .map(|p| Ok(format!("- `{}`", relative(info, base, p)?)))
-        .collect::<Result<Vec<_>>>()?
-        .join("\n");
+    let sources = if info.tree.layered() {
+        let overview = role.is_some() || files::same(base, &info.project_root);
+        format!(
+            "Before project work, read the relevant active guidance and project rules. {PRECEDENCE}\n\n{}",
+            precedence_list(info, 0, base, overview)?
+        )
+    } else {
+        let list = instruction_sources(info)
+            .iter()
+            .map(|p| Ok(format!("- `{}`", relative(info, base, p)?)))
+            .collect::<Result<Vec<_>>>()?
+            .join("\n");
+        format!(
+            "Before project work, read the relevant active guidance and project rules. Project rules take precedence over shared guidance:\n\n{list}"
+        )
+    };
     let (selection, shared_policy) = match &info.lock {
         Some(lock) => (
             format!(
@@ -440,7 +675,7 @@ fn bootstrap(
         )
     };
     let mut text = format!(
-        "# CretSpec workspace\n\nGenerated by CretSpec {}. Edit the source repositories; run `cspec sync` to refresh this file. Paths below are relative to this {location}.\n\n{}\n- {selection}\n\nBefore project work, read the relevant active guidance and project rules. Project rules take precedence over shared guidance:\n\n{sources}\n\nUse `cspec context --json` to inspect sources and `cspec skill list --json` to find skills. Follow the active specification method when changing requirements, stories, decisions or verification evidence. Use the `cspec-workspace` skill for workflow and CLI help.\n\nWhen asked to remember an approach or create a skill, infer whether it is project-specific or reusable. Ask one scope question only when intent is unclear. Project skills belong in the spec's `spec/skills/`; shared skills belong in the editable guidelines repository's `skills/`.{repository_policy} {shared_policy} Use ordinary Git fetch/pull/commit/push in the guidelines repository to exchange changes; CretSpec does not do this automatically. Agreements belong in guidelines or project rules rather than automatically becoming skills.\n\nKeep internal context out of product commits. Generated instructions and skill copies are local and replaceable. Do not edit snapshots or generated outputs. Use the source paths returned by the CLI. These instructions do not change the host's permissions; it may need access to sibling repositories.{roles_text}\n",
+        "# CretSpec workspace\n\nGenerated by CretSpec {}. Edit the source repositories; run `cspec sync` to refresh this file. Paths below are relative to this {location}.\n\n{}\n- {selection}\n\n{sources}\n\nUse `cspec context --json` to inspect sources and `cspec skill list --json` to find skills. Follow the active specification method when changing requirements, stories, decisions or verification evidence. Use the `cspec-workspace` skill for workflow and CLI help.\n\nWhen asked to remember an approach or create a skill, infer whether it is project-specific or reusable. Ask one scope question only when intent is unclear. Project skills belong in the spec's `spec/skills/`; shared skills belong in the editable guidelines repository's `skills/`.{repository_policy} {shared_policy} Use ordinary Git fetch/pull/commit/push in the guidelines repository to exchange changes; CretSpec does not do this automatically. Agreements belong in guidelines or project rules rather than automatically becoming skills.\n\nKeep internal context out of product commits. Generated instructions and skill copies are local and replaceable. Do not edit snapshots or generated outputs. Use the source paths returned by the CLI. These instructions do not change the host's permissions; it may need access to sibling repositories.{roles_text}\n",
         env!("CARGO_PKG_VERSION"),
         repository_map(info, base)?,
     );
@@ -516,6 +751,14 @@ fn desired(info: &ProjectInfo, owned: &State) -> Result<BTreeMap<String, Resourc
     }
     if has(Agent::Claude) {
         directories.push(".claude/skills");
+    }
+    for (index, project) in info.tree.projects.iter().enumerate().skip(1) {
+        if let Some(file) = project.context.as_ref().and_then(|c| c.file_name()) {
+            result.insert(
+                format!("{CONTEXT_DIRECTORY}/{}", file.to_string_lossy()),
+                text(context_file(info, index)?),
+            );
+        }
     }
     for anchor in anchors(info, roles.clone()) {
         let key = |name: &str| format!("{}/{name}", anchor.name);
@@ -625,7 +868,7 @@ fn preflight(info: &ProjectInfo, owned: &State, next: &BTreeMap<String, Resource
     for key in keys {
         let target = target(info, key)?;
         if !base_present(info, &target)? {
-            if next.contains_key(key) && !target.role {
+            if next.contains_key(key) && !target.role && !target.local {
                 bail!("Missing workspace directory: {}", target.base.display());
             }
             continue;
@@ -828,6 +1071,7 @@ pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
         unchanged: 0,
         released,
         compatibility_notice: compatibility_notice(info),
+        warnings: reference_warnings(info),
     };
     let allowed = owned_paths(info, &pending)?;
     let mut planned = BTreeSet::new();
@@ -835,6 +1079,9 @@ pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
         let target = target(info, key)?;
         if target.role {
             prepare_role_base(info, &target.base)?;
+        }
+        if target.local && !files::exists(&target.base)? {
+            fs::create_dir(&target.base)?;
         }
         check_parents(&target.base, &target.path)?;
         planned.insert(target.path.clone());
@@ -878,6 +1125,16 @@ pub fn sync(info: &ProjectInfo) -> Result<SyncResult> {
     files::write_json(&local.join(STATE), &committed)?;
     fs::remove_file(local.join(PENDING))?;
     Ok(result)
+}
+
+/// Problems in referenced branches of the tree, and skills that a source with higher
+/// precedence overrides.
+pub fn reference_warnings(info: &ProjectInfo) -> Vec<String> {
+    let mut result = info.tree.warnings.clone();
+    if let Ok((_, overridden)) = skills::resolve(info) {
+        result.extend(overridden);
+    }
+    result
 }
 
 pub fn compatibility_notice(info: &ProjectInfo) -> Option<String> {
@@ -1052,6 +1309,8 @@ pub fn context(info: &ProjectInfo, role: Option<&str>) -> Result<Value> {
     let mut value = json!({
         "schemaVersion":1, "cliVersion":env!("CARGO_PKG_VERSION"), "project":info,
         "instructionSources":instruction_sources(info),
+        "instructionLayers":layers(info, 0),
+        "referenceWarnings":reference_warnings(info),
         "skillSources":{"project":info.spec.join("spec/skills"), "shared":info.editable_guidelines.join("skills"), "activeShared":info.active_guidelines.join("skills"),
             "repositories":info.repositories.iter().filter_map(|r| Some((r.name.clone(), json!(r.skills.as_ref()?)))).collect::<serde_json::Map<_,_>>()},
         "skills":skills::inventory(info)?, "integration":status, "compatibilityNotice":compatibility_notice(info),

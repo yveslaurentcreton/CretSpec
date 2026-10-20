@@ -7,4 +7,5 @@ pub mod operations;
 pub mod repository;
 pub mod roles;
 pub mod skills;
+pub mod tree;
 pub mod workspace;
