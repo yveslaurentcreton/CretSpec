@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.7.0...v0.8.0) (2026-10-20)
+
+
+### Features
+
+* reference guidelines and other projects as a tree ([5d96609](https://github.com/yveslaurentcreton/CretSpec/commit/5d96609ae4376d3242acafdb32d57c1c649898bd))
+
 ## [0.7.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.6.0...v0.7.0) (2026-10-19)
 
 
