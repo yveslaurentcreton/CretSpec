@@ -1,6 +1,6 @@
 ---
 title: Combine repositories and roles
-description: Declare several repositories in one workspace and give agents role-specific entry points.
+description: Declare several repositories in one workspace, reference guidelines and other projects, and give agents role-specific entry points.
 ---
 
 A workspace can combine several independently versioned repositories, for example an application and the infrastructure that deploys it. Each repository keeps its own Git history and origin. CretSpec needs no submodules or monorepo. Agents receive shared context for the whole workspace, each repository's own instructions, and optional roles for a specific focus.
@@ -90,6 +90,54 @@ Project rules take precedence over shared guidelines. A project can, for example
 
 Let repositories commit only `AGENTS.md`. Every supported agent reads it, so CretSpec generates no tool-specific entry point for Claude Code. A committed `CLAUDE.md` is respected, but makes Claude Code skip `AGENTS.md`, including the workspace context; see [generated files](/CretSpec/reference/skills/#generated-files). Repository and workspace entry points never contain role instructions, so a role cannot leak into another conversation.
 
+## Reference guidelines and other projects
+
+A workspace can build on knowledge that others own. Suppose you specify work for a customer that keeps its own AI guidelines, a technical handbook and an application with its own CretSpec specification. The customer's developers open the application's project directly. You keep your own specification for the customer and want everything in one workspace.
+
+[Schema version 3](/CretSpec/reference/manifest/#schema-version-3) gives each repository entry a `type`:
+
+```json
+"repositories": [
+  { "name": "platform", "url": "git@ssh.dev.azure.com:v3/ardeca/Industries/platform" },
+  { "name": "handbook", "type": "guidelines", "url": "git@ssh.dev.azure.com:v3/ardeca/Industries/handbook",
+    "ref": "main", "instructions": ["README.md"] },
+  { "name": "ardisq", "type": "project", "url": "git@ssh.dev.azure.com:v3/ardeca/Industries/ardisq" }
+]
+```
+
+Run `cspec project migrate` on an existing version 2 project first. `cspec project clone` or `cspec project attach <spec> --clone-missing` then clones the tree: the handbook, the application's spec and everything that project declares, such as its own AI guidelines. A referenced project can reference further projects; CretSpec resolves the whole tree and stops on a cycle.
+
+The result stays one ordinary folder:
+
+```text
+ardeca-industries/
+├── ardeca-industries/  # your specification, contains project.json
+├── ai-guidelines/      # your guidelines
+├── platform/
+├── handbook/           # guidelines reference
+├── ardisq/             # referenced project: its spec and code
+└── ai-kit/             # guidelines that ardisq declares
+```
+
+### What agents read
+
+Every generated `AGENTS.md` lists its sources from highest to lowest precedence. Your project rules always come first; you can override or extend a customer's rules there. By default the references follow in declaration order, with your own guidelines first:
+
+```text
+1. Project rules: `ardeca-industries/spec/project-rules.md`
+2. Shared guidelines `ai-guidelines`: ...
+3. Guidelines `handbook`: `handbook/README.md`
+4. Referenced project `ardisq` (applies in `ardisq`, `ai-kit`): read its context file `ardeca-industries/.local/context/ardisq.md`
+```
+
+A referenced project's guidance applies in its own folders. In `platform/AGENTS.md` the `ardisq` entry is absent; in `ardisq/AGENTS.md` it is present without the folder list. The workspace root lists everything with the folders each entry applies in. The context file contains exactly what `ardisq` gives when it is opened on its own, so it stays as its owners intended, and `AGENTS.md` stays short however deep the tree is.
+
+- `priority` changes the order. `"priority": 1` on `ardisq` puts it, with everything it brings, above your own guidelines, for example when its .NET profile should lead in its code.
+- `scope` limits a guidelines reference to named repositories, for example `"scope": ["platform"]` for an infrastructure handbook.
+- Skills of every source are distributed to every folder. When two sources define the same skill name, the one with the highest precedence wins and sync and doctor say which skill was overridden.
+
+Commands run inside a referenced project's folder still act on your workspace. When the customer's developers clone `ardisq` themselves, they see only its own context. Nothing from your specification appears there.
+
 ## Define roles
 
 A role gives an agent shared project context with a specific focus. Store each role in the specification:
@@ -150,6 +198,7 @@ Roles are working agreements, not a security boundary. Agents running as the sam
 
 ## Limits
 
+- References resolve inside one workspace folder. A referenced project's own roles are not generated; define roles in your own specification.
 - Linked Git worktrees outside the workspace folder, such as those created by some agent apps for parallel work, do not receive generated context. Ignored files and sibling repositories are not copied into them.
 - CretSpec prepares context only. It does not run agents, coordinate conversations or manage backlogs.
 - Role folders are generated outputs. Edit the role source and run `cspec sync`; removing a role removes only the files CretSpec created for it.

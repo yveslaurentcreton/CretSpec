@@ -1908,7 +1908,11 @@ fn version_two_definitions_reject_ambiguous_repositories() {
     assert!(invalid(&|v| {
         v.as_object_mut().unwrap().remove("repositories");
     }));
-    assert!(invalid(&|v| v["schemaVersion"] = json!(3)));
+    assert!(invalid(&|v| v["schemaVersion"] = json!(4)));
+    assert!(invalid(
+        &|v| v["repositories"][1]["type"] = json!("guidelines")
+    ));
+    assert!(invalid(&|v| v["repositories"][1]["priority"] = json!(1)));
     assert!(invalid(&|v| {
         v["schemaVersion"] = json!(1);
         v["code"] = json!({"repository": "../Sample"});
@@ -2592,6 +2596,588 @@ fn invalid_frontmatter_names_the_line_field_and_fix() {
     let error = format!("{:#}", agents::sync(&info).unwrap_err());
     assert!(
         error.contains("Invalid skill frontmatter at line 3, field `description`"),
+        "{error}"
+    );
+}
+
+/// A schema version 3 workspace: the fixture's application and infrastructure, a scoped
+/// guidelines reference `kit`, and a referenced project `child` with its own pinned
+/// guidelines and a library repository.
+fn tree_fixture() -> (Fixture, String) {
+    let f = v2_fixture();
+    let kit = f.source.join("Kit");
+    repo(&kit);
+    fs::create_dir_all(kit.join("guidelines")).unwrap();
+    fs::write(kit.join("README.md"), "# Kit\n").unwrap();
+    fs::write(kit.join("guidelines/principles.md"), "# Kit rules\n").unwrap();
+    skill_source(&kit.join("skills"), "kit-skill", "Kit.");
+    skill_source(&kit.join("skills"), "shared-name", "From kit.");
+    commit(&kit, "Fixture");
+    let child_kit = f.source.join("ChildKit");
+    repo(&child_kit);
+    fs::write(child_kit.join("README.md"), "# Child kit\n").unwrap();
+    skill_source(
+        &child_kit.join("skills"),
+        "shared-name",
+        "From the child kit.",
+    );
+    let pinned = commit(&child_kit, "Fixture");
+    git::run(&child_kit, ["tag", "v1"]).unwrap();
+    let lib = f.source.join("Lib");
+    repo(&lib);
+    fs::write(lib.join("README.md"), "# Lib\n").unwrap();
+    commit(&lib, "Fixture");
+    let child = f.source.join("Child-spec");
+    repo(&child);
+    fs::create_dir_all(child.join("spec")).unwrap();
+    fs::write(child.join("spec/project-rules.md"), "# Child rules\n").unwrap();
+    skill_source(&child.join("spec/skills"), "child-skill", "Child.");
+    files::write_json(
+        &child.join("project.json"),
+        &json!({
+            "schemaVersion": 2,
+            "name": "Child",
+            "specRepository": {"name": "child-spec", "purpose": "The child's specification."},
+            "repositories": [{"name": "lib", "url": "../Lib", "path": "Lib", "purpose": "Library."}],
+            "guidelines": {"repository": "../ChildKit", "ref": "v1"},
+            "agents": ["codex"]
+        }),
+    )
+    .unwrap();
+    files::write_json(
+        &child.join("guidelines.lock.json"),
+        &json!({"schemaVersion": 1, "ref": "v1", "commit": pinned}),
+    )
+    .unwrap();
+    commit(&child, "Fixture");
+    files::write_json(&f.spec.join("project.json"), &tree_manifest()).unwrap();
+    fs::write(f.spec.join("spec/project-rules.md"), "# Rules\n").unwrap();
+    commit(&f.spec, "Reference guidelines and a project");
+    (f, pinned)
+}
+
+fn tree_manifest() -> Value {
+    let mut value = v2_manifest();
+    value["schemaVersion"] = json!(3);
+    let repositories = value["repositories"].as_array_mut().unwrap();
+    repositories.push(json!({"name": "kit", "type": "guidelines", "url": "../Kit", "path": "Kit", "ref": "main", "scope": ["app"]}));
+    repositories.push(json!({"name": "child", "type": "project", "url": "../Child-spec", "path": "Child-spec", "purpose": "A referenced project."}));
+    value
+}
+
+#[test]
+fn references_resolve_a_tree_with_precedence_scope_and_context_files() {
+    let (f, pinned) = tree_fixture();
+    let info = f.clone();
+    let root = &info.project_root;
+    assert_eq!(
+        children(root)
+            .into_iter()
+            .filter(|n| !n.starts_with('.') && !n.ends_with(".md"))
+            .collect::<Vec<_>>(),
+        [
+            "Child-spec",
+            "ChildKit",
+            "CretAI",
+            "Kit",
+            "Lib",
+            "Sample",
+            "Sample-spec",
+            "infra"
+        ]
+    );
+    assert!(
+        info.spec
+            .join(".local/guidelines")
+            .join(&pinned)
+            .join("README.md")
+            .is_file()
+    );
+    assert_eq!(
+        git::run(&root.join("Kit"), ["symbolic-ref", "--short", "HEAD"]).unwrap(),
+        "main"
+    );
+
+    let overview = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(
+        overview.contains("listed from highest to lowest precedence"),
+        "{overview}"
+    );
+    assert!(
+        overview.contains("1. Project rules: `Sample-spec/spec/project-rules.md`"),
+        "{overview}"
+    );
+    assert!(
+        overview.contains("2. Shared guidelines `CretAI`: `Sample-spec/.local/guidelines/"),
+        "{overview}"
+    );
+    assert!(overview.contains("3. Guidelines `kit` (applies in `Kit`, `Sample`): `Kit/README.md`, `Kit/guidelines/principles.md`"), "{overview}");
+    assert!(overview.contains("4. Referenced project `child` (applies in `Child-spec`, `ChildKit`, `Lib`): read its context file `Sample-spec/.local/context/Child-spec.md`"), "{overview}");
+    assert!(
+        overview.contains(
+            "- Guidelines `kit`: `Kit`: purpose not described; working tree (branch `main`)"
+        ),
+        "{overview}"
+    );
+    assert!(
+        overview.contains("- Referenced project `child`: `Child-spec`: A referenced project."),
+        "{overview}"
+    );
+    assert!(
+        overview.contains("- Repository `lib` of referenced project `Child`: `Lib`: Library."),
+        "{overview}"
+    );
+
+    let app = fs::read_to_string(root.join("Sample/AGENTS.md")).unwrap();
+    assert!(
+        app.contains("3. Guidelines `kit`: `../Kit/README.md`"),
+        "{app}"
+    );
+    assert!(!app.contains("context file"), "{app}");
+    let infra = fs::read_to_string(root.join("infra/AGENTS.md")).unwrap();
+    assert!(
+        !infra.contains("Kit/README.md") && !infra.contains("context file"),
+        "{infra}"
+    );
+    let lib = fs::read_to_string(root.join("Lib/AGENTS.md")).unwrap();
+    assert!(lib.contains("3. Referenced project `child`: read its context file `../Sample-spec/.local/context/Child-spec.md`"), "{lib}");
+    assert_eq!(
+        git::run(&root.join("Lib"), ["status", "--porcelain"]).unwrap(),
+        ""
+    );
+
+    // Inside the referenced project, commands still act on the workspace.
+    assert_eq!(
+        workspace::find_spec(&root.join("Child-spec/spec")).unwrap(),
+        info.spec
+    );
+    assert_eq!(workspace::find_spec(root).unwrap(), info.spec);
+    let context = fs::read_to_string(info.spec.join(".local/context/Child-spec.md")).unwrap();
+    assert!(
+        context.starts_with("# Referenced project `Child`"),
+        "{context}"
+    );
+    assert!(
+        context.contains("1. Project rules: `Child-spec/spec/project-rules.md`"),
+        "{context}"
+    );
+    assert!(
+        context.contains(&format!(
+            "2. Shared guidelines `ChildKit`: `Sample-spec/.local/guidelines/{pinned}/README.md`"
+        )),
+        "{context}"
+    );
+    assert!(
+        context.contains("- Repository `lib`: `Lib`: Library."),
+        "{context}"
+    );
+
+    let inventory = skills::inventory(&info).unwrap();
+    let origin = |name: &str| {
+        inventory
+            .active
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| s.origin())
+            .unwrap()
+    };
+    assert_eq!(origin("kit-skill"), "guidelines `kit`");
+    assert_eq!(
+        origin("child-skill"),
+        "the project source of referenced project `Child`"
+    );
+    assert_eq!(origin("shared-name"), "guidelines `kit`");
+    assert_eq!(
+        inventory.warnings,
+        [
+            "Skill 'shared-name' from guidelines `kit` overrides the one from the active shared source of referenced project `Child`"
+        ]
+    );
+    assert!(
+        root.join("Lib/.agents/skills/child-skill/SKILL.md")
+            .is_file()
+    );
+
+    let checks = operations::diagnose(root);
+    assert!(
+        checks.iter().all(|c| c.ok),
+        "{:?}",
+        checks.iter().map(|c| &c.detail).collect::<Vec<_>>()
+    );
+    let references = checks.iter().find(|c| c.name == "References").unwrap();
+    assert!(
+        references.detail.starts_with(
+            "1 referenced project and 3 guidelines sources resolved. Warning: Skill 'shared-name'"
+        ),
+        "{}",
+        references.detail
+    );
+    let json: Value =
+        serde_json::from_str(&ok(f.cli(&["context", &root.to_string_lossy(), "--json"]))).unwrap();
+    assert_eq!(json["project"]["tree"]["projects"][1]["name"], "Child");
+    assert_eq!(
+        json["instructionLayers"][3]["label"],
+        "Referenced project `child`"
+    );
+    assert_eq!(json["integration"]["ready"], true);
+
+    // A priority moves the referenced project, with everything it brings, above CretAI.
+    let mut value = tree_manifest();
+    value["repositories"][3]["priority"] = json!(1);
+    files::write_json(&info.spec.join("project.json"), &value).unwrap();
+    ok(f.cli(&["sync", &root.to_string_lossy()]));
+    let overview = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(
+        overview.contains("2. Referenced project `child`"),
+        "{overview}"
+    );
+    assert!(
+        overview.contains("3. Shared guidelines `CretAI`"),
+        "{overview}"
+    );
+}
+
+#[test]
+fn referenced_projects_reject_cycles_and_keep_their_own_context() {
+    let (f, _) = tree_fixture();
+    // On its own, the referenced project has only its own context.
+    let alone = f.destination.join("alone");
+    let child = workspace::clone_project(
+        &f.source.join("Child-spec").to_string_lossy(),
+        Some(&alone),
+        None,
+        &f.destination,
+        &|_| {},
+    )
+    .unwrap();
+    let own = fs::read_to_string(child.project_root.join("AGENTS.md")).unwrap();
+    assert!(!own.contains("Sample") && !own.contains("Kit/"), "{own}");
+    assert!(
+        own.contains("Project rules take precedence over shared guidance"),
+        "{own}"
+    );
+
+    // The child referencing the workspace that references it is a cycle.
+    let source = f.source.join("Child-spec");
+    let mut manifest: Value = files::read_json(&source.join("project.json")).unwrap();
+    manifest["schemaVersion"] = json!(3);
+    manifest["repositories"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name": "parent", "type": "project", "url": "../Sample-spec"}));
+    files::write_json(&source.join("project.json"), &manifest).unwrap();
+    commit(&source, "Reference the parent");
+    let error = workspace::clone_project(
+        &f.spec.to_string_lossy(),
+        None,
+        None,
+        &f.destination,
+        &|_| {},
+    )
+    .err()
+    .unwrap();
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("Reference cycle: Sample -> Child -> Sample"),
+        "{error}"
+    );
+    assert!(!f.destination.join("Sample/AGENTS.md").exists());
+
+    // A project cannot reference its own spec either.
+    let mut value = tree_manifest();
+    value["repositories"][3]["url"] = json!("../Sample-spec");
+    let manifest: cretspec::manifest::Manifest = serde_json::from_value(value).unwrap();
+    let error = workspace::paths(&f.spec, &manifest, &f.spec.to_string_lossy())
+        .err()
+        .unwrap();
+    assert!(format!("{error:#}").contains("already part of the workspace"));
+}
+
+#[test]
+fn missing_nested_repositories_are_reported_and_can_be_cloned() {
+    let (f, _) = tree_fixture();
+    let info = f.clone();
+    let root = info.project_root.clone();
+    fs::remove_dir_all(root.join("Lib")).unwrap();
+    let output = ok(f.cli(&["sync", &root.to_string_lossy()]));
+    assert!(
+        output.contains("Warning: Reference lib of project Child is missing"),
+        "{output}"
+    );
+    let checks = operations::diagnose(&root);
+    assert!(
+        checks.iter().all(|c| c.ok),
+        "{:?}",
+        checks.iter().map(|c| &c.detail).collect::<Vec<_>>()
+    );
+    workspace::attach(None, &info.spec, true, &|_| {}).unwrap();
+    assert!(root.join("Lib/AGENTS.md").is_file());
+    let info = workspace::info(&root, false, &|_| {}).unwrap();
+    assert!(info.tree.warnings.is_empty(), "{:?}", info.tree.warnings);
+}
+
+#[test]
+fn migration_keeps_the_generated_context_and_rejects_typed_fields_in_version_two() {
+    let f = v2_fixture();
+    let info = f.clone();
+    let read = |path: &Path| fs::read(path).unwrap();
+    let before = [
+        info.project_root.join("AGENTS.md"),
+        info.project_root.join("infra/AGENTS.md"),
+    ]
+    .map(|p| read(&p));
+    assert!(
+        ok(f.cli(&[
+            "project",
+            "migrate",
+            &info.project_root.to_string_lossy(),
+            "--preview"
+        ]))
+        .contains("2 -> 3")
+    );
+    let value: Value = files::read_json(&info.spec.join("project.json")).unwrap();
+    assert_eq!(value["schemaVersion"], 2);
+    ok(f.cli(&["project", "migrate", &info.project_root.to_string_lossy()]));
+    let value: Value = files::read_json(&info.spec.join("project.json")).unwrap();
+    assert_eq!(value["schemaVersion"], 3);
+    let after = [
+        info.project_root.join("AGENTS.md"),
+        info.project_root.join("infra/AGENTS.md"),
+    ]
+    .map(|p| read(&p));
+    assert_eq!(before, after);
+    assert!(
+        ok(f.cli(&["project", "migrate", &info.project_root.to_string_lossy()]))
+            .contains("already uses schemaVersion 3")
+    );
+    assert!(
+        operations::diagnose(&info.project_root)
+            .iter()
+            .all(|c| c.ok)
+    );
+
+    let legacy = Fixture::new();
+    let info = legacy.clone();
+    let error = operations::migrate(&info.project_root, false).unwrap_err();
+    assert!(format!("{error:#}").contains("Declare it by name first"));
+}
+
+#[test]
+fn a_three_level_tree_clones_shared_guidelines_once_with_a_snapshot_per_commit() {
+    let (f, _) = tree_fixture();
+    let kit = f.source.join("Kit");
+    let first = git::run(&kit, ["rev-parse", "HEAD"]).unwrap();
+    git::run(&kit, ["tag", "k1"]).unwrap();
+    fs::write(kit.join("README.md"), "# Kit, second version\n").unwrap();
+    let second = commit(&kit, "Second version");
+    git::run(&kit, ["tag", "k2"]).unwrap();
+    // The grandchild pins its own guidelines, Kit, at the second version.
+    let grand = f.source.join("Grand-spec");
+    repo(&grand);
+    fs::create_dir_all(grand.join("spec")).unwrap();
+    fs::write(grand.join("spec/project-rules.md"), "# Grand rules\n").unwrap();
+    files::write_json(
+        &grand.join("project.json"),
+        &json!({"schemaVersion": 2, "name": "Grand", "repositories": [],
+            "guidelines": {"repository": "../Kit", "ref": "k2"}, "agents": ["codex"]}),
+    )
+    .unwrap();
+    files::write_json(
+        &grand.join("guidelines.lock.json"),
+        &json!({"schemaVersion": 1, "ref": "k2", "commit": second}),
+    )
+    .unwrap();
+    commit(&grand, "Fixture");
+    // The child pins Kit at the first version and references the grandchild.
+    let child = f.source.join("Child-spec");
+    let mut manifest: Value = files::read_json(&child.join("project.json")).unwrap();
+    manifest["schemaVersion"] = json!(3);
+    let repositories = manifest["repositories"].as_array_mut().unwrap();
+    repositories.push(
+        json!({"name": "kit", "type": "guidelines", "url": "../Kit", "ref": "k1", "commit": first}),
+    );
+    repositories.push(json!({"name": "grand", "type": "project", "url": "../Grand-spec"}));
+    files::write_json(&child.join("project.json"), &manifest).unwrap();
+    commit(&child, "Reference the grandchild");
+
+    let info = f.clone();
+    let root = &info.project_root;
+    assert!(info.tree.warnings.is_empty(), "{:?}", info.tree.warnings);
+    assert_eq!(info.tree.projects.len(), 3);
+    assert_eq!(info.tree.projects[2].depth, 2);
+    let kits: Vec<_> = children(root)
+        .into_iter()
+        .filter(|n| n.contains("Kit") && n != "ChildKit")
+        .collect();
+    assert_eq!(kits, ["Kit"]);
+    for commit in [&first, &second] {
+        assert!(
+            info.spec
+                .join(".local/guidelines")
+                .join(commit)
+                .join("README.md")
+                .is_file()
+        );
+    }
+    let child_context = fs::read_to_string(info.spec.join(".local/context/Child-spec.md")).unwrap();
+    assert!(
+        child_context.contains(&format!(
+            "Guidelines `kit`: `Sample-spec/.local/guidelines/{first}/README.md`"
+        )),
+        "{child_context}"
+    );
+    assert!(child_context.contains("Referenced project `grand` (applies in `Kit`, `grand`): read its context file `Sample-spec/.local/context/grand.md`"), "{child_context}");
+    let grand_context = fs::read_to_string(info.spec.join(".local/context/grand.md")).unwrap();
+    assert!(
+        grand_context.contains(&format!(
+            "Shared guidelines `Kit`: `Sample-spec/.local/guidelines/{second}/README.md`"
+        )),
+        "{grand_context}"
+    );
+    let grand_agents = fs::read_to_string(root.join("grand/AGENTS.md")).unwrap();
+    assert!(
+        grand_agents.contains("Referenced project `child`: read its context file"),
+        "{grand_agents}"
+    );
+    let checks = operations::diagnose(root);
+    assert!(
+        checks.iter().all(|c| c.ok),
+        "{:?}",
+        checks.iter().map(|c| &c.detail).collect::<Vec<_>>()
+    );
+}
+
+/// Adds a schema version 3 project spec with the given references to the fixture sources.
+fn project_source(f: &Fixture, directory: &str, name: &str, repositories: Value) -> PathBuf {
+    let path = f.source.join(directory);
+    repo(&path);
+    fs::create_dir_all(path.join("spec")).unwrap();
+    fs::write(
+        path.join("spec/project-rules.md"),
+        format!("# {name} rules\n"),
+    )
+    .unwrap();
+    files::write_json(
+        &path.join("project.json"),
+        &json!({"schemaVersion": 3, "name": name, "repositories": repositories,
+            "guidelines": {"repository": "../ChildKit", "ref": "main"}, "agents": ["codex"]}),
+    )
+    .unwrap();
+    commit(&path, "Fixture");
+    path
+}
+
+#[test]
+fn diamonds_shared_repositories_and_folder_collisions_resolve_stably() {
+    let (f, _) = tree_fixture();
+    // Both referenced projects reference Grand, and both declare a library in folder Lib
+    // from different sources.
+    let grand = project_source(&f, "Grand-spec", "Grand", json!([]));
+    skill_source(&grand.join("spec/skills"), "grand-skill", "Grand.");
+    commit(&grand, "Skill");
+    let lib2 = f.source.join("Lib2");
+    repo(&lib2);
+    fs::write(lib2.join("README.md"), "# Lib 2\n").unwrap();
+    commit(&lib2, "Fixture");
+    project_source(
+        &f,
+        "Other-spec",
+        "Other",
+        json!([
+            {"name": "lib", "url": "../Lib2", "path": "Lib"},
+            {"name": "grand", "type": "project", "url": "../Grand-spec", "path": "Grand-spec"},
+            {"name": "spec-guidance", "type": "guidelines", "url": "../Sample-spec", "ref": "main"}
+        ]),
+    );
+    let child = f.source.join("Child-spec");
+    let mut manifest: Value = files::read_json(&child.join("project.json")).unwrap();
+    manifest["schemaVersion"] = json!(3);
+    manifest["repositories"].as_array_mut().unwrap().push(
+        json!({"name": "grand", "type": "project", "url": "../Grand-spec", "path": "Grand-spec"}),
+    );
+    files::write_json(&child.join("project.json"), &manifest).unwrap();
+    commit(&child, "Reference Grand");
+    let mut value = tree_manifest();
+    value["repositories"].as_array_mut().unwrap().push(
+        json!({"name": "other", "type": "project", "url": "../Other-spec", "path": "Other-spec"}),
+    );
+    files::write_json(&f.spec.join("project.json"), &value).unwrap();
+    commit(&f.spec, "Reference Other");
+
+    let info = f.clone();
+    let root = info.project_root.clone();
+    assert!(info.tree.warnings.is_empty(), "{:?}", info.tree.warnings);
+    let names = children(&root);
+    assert!(
+        names.contains(&"Lib".into()) && names.contains(&"Other-spec-Lib".into()),
+        "{names:?}"
+    );
+    // Grand is reached twice and shared guidelines several times, without false warnings.
+    let inventory = skills::inventory(&info).unwrap();
+    assert!(inventory.active.iter().any(|s| s.name == "grand-skill"));
+    assert_eq!(
+        inventory.warnings,
+        [
+            "Skill 'shared-name' from guidelines `kit` overrides the one from the active shared source of referenced project `Child`"
+        ]
+    );
+
+    // Swapping the order of the references keeps every folder.
+    let repositories = value["repositories"].as_array_mut().unwrap();
+    let other = repositories.pop().unwrap();
+    repositories.insert(2, other);
+    files::write_json(&info.spec.join("project.json"), &value).unwrap();
+    let info = workspace::info(&root, false, &|_| {}).unwrap();
+    assert!(info.tree.warnings.is_empty(), "{:?}", info.tree.warnings);
+    agents::sync(&info).unwrap();
+    assert!(root.join("Other-spec-Lib/AGENTS.md").is_file());
+
+    // Discovery finds the workspace from every folder, including a prefixed one.
+    for folder in ["", "infra", "Other-spec", "Grand-spec", "Other-spec-Lib"] {
+        assert_eq!(
+            workspace::find_spec(&root.join(folder)).unwrap(),
+            info.spec,
+            "{folder}"
+        );
+    }
+    assert!(operations::diagnose(&root).iter().all(|c| c.ok));
+}
+
+#[test]
+fn a_cycle_behind_a_shorter_path_is_rejected() {
+    let (f, _) = tree_fixture();
+    project_source(
+        &f,
+        "Other-spec",
+        "Other",
+        json!([{"name": "child", "type": "project", "url": "../Child-spec", "path": "Child-spec"}]),
+    );
+    let child = f.source.join("Child-spec");
+    let mut manifest: Value = files::read_json(&child.join("project.json")).unwrap();
+    manifest["schemaVersion"] = json!(3);
+    manifest["repositories"].as_array_mut().unwrap().push(
+        json!({"name": "other", "type": "project", "url": "../Other-spec", "path": "Other-spec"}),
+    );
+    files::write_json(&child.join("project.json"), &manifest).unwrap();
+    commit(&child, "Reference Other");
+    let mut value = tree_manifest();
+    value["repositories"].as_array_mut().unwrap().push(
+        json!({"name": "other", "type": "project", "url": "../Other-spec", "path": "Other-spec"}),
+    );
+    files::write_json(&f.spec.join("project.json"), &value).unwrap();
+    commit(&f.spec, "Reference Other");
+    let error = workspace::clone_project(
+        &f.spec.to_string_lossy(),
+        None,
+        None,
+        &f.destination,
+        &|_| {},
+    )
+    .err()
+    .unwrap();
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("Reference cycle: Child -> Other -> Child"),
         "{error}"
     );
 }
