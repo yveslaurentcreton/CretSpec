@@ -35,6 +35,11 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 | Tracked generated path | Remove that generated file from Git's index while preserving the source. Do not publish private context with the product. |
 | Interrupted synchronization | Keep `.local/agents-pending.json` and retry `cspec sync`; user edits are not overwritten. |
 | Duplicate skill names in source repositories | Rename one source skill. Project and shared active names must be distinct. |
+| A skill overrides another | A further guidelines reference or a referenced project defines the same name. The source with the highest precedence wins; rename one, or change `priority` if the other should win. |
+| Typed reference fields require schemaVersion 3 | Run `cspec project migrate`, then add the references. |
+| Reference cycle | A project references itself, directly or through other projects. Remove one reference in the named path. |
+| A referenced repository is missing | Run `cspec project attach <spec> --clone-missing`. Check access with `git ls-remote` when cloning fails; the rest of the workspace keeps working. |
+| Two references want different guidelines branches | One working tree serves the workspace; the reference closest to the root decides. Pin one with `commit`, or align the branches. |
 | Duplicate skills shown by an editor | Select the integrations you use in `project.json`; compatibility readers can see both directories. Open one repository to narrow multi-root discovery. |
 | Skill not visible in an agent | Run doctor, check the selected integration and the host's skills/trust settings, then start a fresh agent session. Doctor checks files, not the running agent. |
 | Shared skill is only listed as a draft | The project is pinned. Commit and explicitly adopt the version, or use `guidelines unlock` to use local sources. |

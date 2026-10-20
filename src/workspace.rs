@@ -1,7 +1,8 @@
 use crate::{
     files, git,
-    manifest::{self, GuidelinesMode, LEGACY_CODE_NAME, Lock, Manifest, ROLES_DIRECTORY},
+    manifest::{self, GuidelinesMode, Kind, LEGACY_CODE_NAME, Lock, Manifest, ROLES_DIRECTORY},
     repository,
+    tree::{self, Tree},
 };
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -31,6 +32,31 @@ pub struct ProjectInfo {
     pub manifest: Manifest,
     pub lock: Option<Lock>,
     pub guidelines: GuidelinesState,
+    /// Every project and reference of the workspace, including nested ones.
+    pub tree: Tree,
+}
+
+impl ProjectInfo {
+    /// Repositories that referenced projects bring along, beyond the declared ones.
+    pub fn nested_folders(&self) -> Vec<(&str, &Path)> {
+        let mut result: Vec<(&str, &Path)> = Vec::new();
+        let known: Vec<&Path> = [self.spec.as_path(), self.editable_guidelines.as_path()]
+            .into_iter()
+            .chain(self.repositories.iter().map(|r| r.path.as_path()))
+            .collect();
+        let nested = self.tree.references.iter().filter(|r| r.project != 0);
+        for reference in nested {
+            let path = reference.path.as_path();
+            if !known
+                .iter()
+                .chain(result.iter().map(|(_, p)| p))
+                .any(|k| files::same(k, path))
+            {
+                result.push((&reference.name, path));
+            }
+        }
+        result
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,6 +72,8 @@ pub struct SpecRepositoryInfo {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryInfo {
     pub name: String,
+    #[serde(rename = "type")]
+    pub kind: Kind,
     pub path: PathBuf,
     pub source: String,
     pub purpose: Option<String>,
@@ -162,6 +190,7 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
     if let Some(code) = &manifest.code {
         repositories.push(RepositoryInfo {
             name: LEGACY_CODE_NAME.into(),
+            kind: Kind::Code,
             path: root.join(&manifest.name),
             source: repository::resolve(&code.repository, source)?,
             purpose: None,
@@ -173,18 +202,24 @@ pub fn paths(spec: &Path, manifest: &Manifest, source: &str) -> Result<Paths> {
     for declared in manifest.repositories.iter().flatten() {
         repositories.push(RepositoryInfo {
             name: declared.name.clone(),
+            kind: declared.kind(),
             path: root.join(declared.directory()),
             source: repository::resolve(&declared.url, source)?,
             purpose: declared.purpose.clone(),
             profile: declared.profile.clone(),
-            skills: declared.skills.as_ref().map(|skills| {
-                // Join each segment, so the path uses the platform's separators.
-                skills
-                    .split('/')
-                    .fold(root.join(declared.directory()), |path, segment| {
-                        path.join(segment)
-                    })
-            }),
+            // Guidelines references keep their skills in the reference tree.
+            skills: declared
+                .skills
+                .as_ref()
+                .filter(|_| declared.kind() == Kind::Code)
+                .map(|skills| {
+                    // Join each segment, so the path uses the platform's separators.
+                    skills
+                        .split('/')
+                        .fold(root.join(declared.directory()), |path, segment| {
+                            path.join(segment)
+                        })
+                }),
             anchor: format!("repo:{}", declared.directory()),
         });
     }
@@ -375,7 +410,21 @@ pub fn snapshot(
         return Ok((layout.guidelines.clone(), layout.guidelines));
     }
     let lock = lock.context("Pinned guidelines require a lock")?;
-    verify_revision(&layout.guidelines, lock)?;
+    let active = pinned_snapshot(spec, &layout.guidelines, lock, create, progress)?;
+    validate_profiles(&active, manifest)?;
+    Ok((layout.guidelines, active))
+}
+
+/// Prepares or verifies the detached snapshot of a pinned guidelines version in the
+/// spec's ignored `.local/guidelines/`, cloned from the editable clone.
+pub fn pinned_snapshot(
+    spec: &Path,
+    editable: &Path,
+    lock: &Lock,
+    create: bool,
+    progress: Progress<'_>,
+) -> Result<PathBuf> {
+    verify_revision(editable, lock)?;
     let cache = local_directory(spec, create)?.join("guidelines");
     if files::exists(&cache)? {
         files::directory(&cache)?;
@@ -390,7 +439,7 @@ pub fn snapshot(
             );
         }
         progress("Fetching pinned guidelines");
-        git::clone(&layout.guidelines.to_string_lossy(), &active)?;
+        git::clone(&editable.to_string_lossy(), &active)?;
         verify_revision(&active, lock)?;
         git::run(&active, ["checkout", "--detach", &lock.commit])?;
     }
@@ -407,14 +456,68 @@ pub fn snapshot(
             "The cached guidelines differ from the lock or contain local changes. Preserve any work and remove that snapshot before retrying."
         );
     }
-    validate_profiles(&active, manifest)?;
-    Ok((layout.guidelines, active))
+    Ok(active)
 }
 
 fn is_spec(path: &Path) -> bool {
     // Inaccessible directories, such as other users' temporary folders, are not specs.
     files::exists(&path.join("project.json")).unwrap_or(false)
         && files::exists(&path.join("spec")).unwrap_or(false)
+}
+
+/// The spec in the same directory that references `spec` as a project, if any. In a
+/// workspace with referenced projects, the workspace's own spec is the outermost one.
+/// A synchronized workspace keeps a context file per referenced folder, which also
+/// identifies folders that received a prefix; before that, the declared folder counts.
+fn referrer(spec: &Path) -> Option<PathBuf> {
+    let parent = spec.parent()?;
+    let name = spec.file_name()?.to_string_lossy().into_owned();
+    let directory = name.to_ascii_lowercase();
+    let mut entries: Vec<_> = fs::read_dir(parent).ok()?.flatten().collect();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        if files::same(&path, spec)
+            || !entry.file_type().is_ok_and(|kind| kind.is_dir())
+            || entry.file_name().to_string_lossy().starts_with('.')
+            || !is_spec(&path)
+        {
+            continue;
+        }
+        let context = path
+            .join(".local")
+            .join(tree::CONTEXT_DIRECTORY)
+            .join(format!("{name}.md"));
+        if context.is_file() {
+            return Some(path);
+        }
+        let Ok(manifest) = files::read_json::<Value>(&path.join("project.json")) else {
+            continue;
+        };
+        let references = manifest["repositories"].as_array().into_iter().flatten();
+        let referenced = references.filter(|r| r["type"] == "project").any(|r| {
+            r["path"]
+                .as_str()
+                .or(r["name"].as_str())
+                .is_some_and(|d| d.to_ascii_lowercase() == directory)
+        });
+        if referenced {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn outermost(spec: PathBuf) -> PathBuf {
+    let mut current = spec;
+    // A cycle among sibling specs is reported when the tree is resolved.
+    for _ in 0..16 {
+        match referrer(&current) {
+            Some(outer) => current = outer,
+            None => break,
+        }
+    }
+    current
 }
 
 pub fn find_spec(start: &Path) -> Result<PathBuf> {
@@ -431,7 +534,7 @@ pub fn discover_spec(start: &Path) -> Result<PathBuf> {
     loop {
         if is_spec(&current) {
             let spec = git::root(&current)?;
-            return Ok(spec);
+            return git::root(&outermost(spec));
         }
         let enclosing = git::enclosing(&current);
         if let Some(root) = &enclosing {
@@ -440,7 +543,7 @@ pub fn discover_spec(start: &Path) -> Result<PathBuf> {
                 continue;
             }
         } else {
-            let mut candidates = Vec::new();
+            let mut candidates: Vec<PathBuf> = Vec::new();
             for entry in fs::read_dir(&current).into_iter().flatten().flatten() {
                 if !entry.file_type().is_ok_and(|kind| kind.is_dir())
                     || entry.file_name().to_string_lossy().starts_with('.')
@@ -448,7 +551,10 @@ pub fn discover_spec(start: &Path) -> Result<PathBuf> {
                     continue;
                 }
                 if is_spec(&entry.path()) {
-                    candidates.push(entry.path());
+                    let outer = outermost(entry.path());
+                    if !candidates.iter().any(|c| files::same(c, &outer)) {
+                        candidates.push(outer);
+                    }
                 }
             }
             if candidates.len() > 1 {
@@ -468,6 +574,17 @@ pub fn discover_spec(start: &Path) -> Result<PathBuf> {
 }
 
 pub fn info(start: &Path, create: bool, progress: Progress<'_>) -> Result<ProjectInfo> {
+    info_with(start, create, false, progress)
+}
+
+/// Reads the project. With `clone`, repositories that referenced projects bring along
+/// are cloned when they are missing.
+pub fn info_with(
+    start: &Path,
+    create: bool,
+    clone: bool,
+    progress: Progress<'_>,
+) -> Result<ProjectInfo> {
     let spec = find_spec(start)?;
     let (manifest, lock) = manifest::read(&spec)?;
     let source = repository::origin(&spec)?;
@@ -476,6 +593,17 @@ pub fn info(start: &Path, create: bool, progress: Progress<'_>) -> Result<Projec
     let (editable_guidelines, active_guidelines) =
         snapshot(&spec, &manifest, lock.as_ref(), create, progress)?;
     let guidelines = guidelines_state(&active_guidelines, manifest.guidelines_mode(lock.as_ref()))?;
+    let tree = tree::resolve(
+        &spec,
+        &manifest,
+        lock.as_ref(),
+        &source,
+        &layout,
+        &active_guidelines,
+        create,
+        clone,
+        progress,
+    )?;
     let declared = manifest.spec_repository.clone().unwrap_or_default();
     Ok(ProjectInfo {
         project_root: layout.root,
@@ -497,7 +625,27 @@ pub fn info(start: &Path, create: bool, progress: Progress<'_>) -> Result<Projec
         manifest,
         lock,
         guidelines,
+        tree,
     })
+}
+
+/// Clones a declared repository and selects the branch of working-tree guidelines.
+fn clone_declared(manifest: &Manifest, repository: &RepositoryInfo) -> Result<()> {
+    git::clone(&repository.source, &repository.path)?;
+    let declared = manifest
+        .repositories
+        .iter()
+        .flatten()
+        .find(|r| r.name == repository.name);
+    if let Some(declared) = declared
+        && declared.kind() == Kind::Guidelines
+        && declared.commit.is_none()
+        && let Some(branch) = &declared.reference
+    {
+        validate_branch(&repository.path, branch)?;
+        git::run(&repository.path, ["switch", branch])?;
+    }
+    Ok(())
 }
 
 fn prepare_parent(directory: &Path) -> Result<PathBuf> {
@@ -568,9 +716,9 @@ pub fn clone_project(
             } else {
                 progress(&format!("Fetching {}", repository.name));
             }
-            git::clone(&repository.source, &repository.path)?;
+            clone_declared(&manifest, repository)?;
         }
-        let project = info(&spec, true, progress)?;
+        let project = info_with(&spec, true, true, progress)?;
         crate::agents::sync(&project)?;
         Ok(project)
     })();
@@ -637,9 +785,9 @@ pub fn attach(
     }
     for repository in missing {
         progress(&format!("Fetching {}", repository.name));
-        git::clone(&repository.source, &repository.path)?;
+        clone_declared(&manifest, repository)?;
     }
-    let project = info(&spec, true, progress)?;
+    let project = info_with(&spec, true, clone_missing, progress)?;
     crate::agents::sync(&project)?;
     Ok(project)
 }
@@ -656,12 +804,17 @@ pub struct RepositoryState {
 
 /// Reports local branch and change state without modifying any repository.
 pub fn repository_states(info: &ProjectInfo) -> Result<Vec<RepositoryState>> {
-    std::iter::once((&info.spec_repository.name, &info.spec))
-        .chain(info.repositories.iter().map(|r| (&r.name, &r.path)))
+    std::iter::once((info.spec_repository.name.as_str(), info.spec.as_path()))
+        .chain(
+            info.repositories
+                .iter()
+                .map(|r| (r.name.as_str(), r.path.as_path())),
+        )
+        .chain(info.nested_folders())
         .map(|(name, path)| {
             Ok(RepositoryState {
-                name: name.clone(),
-                path: path.clone(),
+                name: name.to_owned(),
+                path: path.to_owned(),
                 branch: git::run(path, ["symbolic-ref", "--quiet", "--short", "HEAD"]).ok(),
                 head: git::run(path, ["rev-parse", "--verify", "--quiet", "HEAD"]).ok(),
                 dirty: !git::run(path, ["status", "--porcelain"])?.is_empty(),
@@ -675,6 +828,7 @@ pub fn undeclared_repositories(info: &ProjectInfo) -> Result<Vec<PathBuf>> {
     let known: Vec<&Path> = [info.spec.as_path(), info.editable_guidelines.as_path()]
         .into_iter()
         .chain(info.repositories.iter().map(|r| r.path.as_path()))
+        .chain(info.nested_folders().into_iter().map(|(_, path)| path))
         .collect();
     let mut result = Vec::new();
     for entry in fs::read_dir(&info.project_root)? {
@@ -708,13 +862,17 @@ pub fn editor_workspace(start: &Path) -> Result<PathBuf> {
         .as_object_mut()
         .context("Editor workspace must be a JSON object")?;
     let mut folders = Vec::new();
-    let repositories = info.repositories.iter().map(|r| &r.path);
-    for folder in repositories.chain([&info.spec, &info.editable_guidelines]) {
+    let repositories = info.repositories.iter().map(|r| r.path.as_path());
+    let nested = info.nested_folders().into_iter().map(|(_, path)| path);
+    for folder in repositories
+        .chain([info.spec.as_path(), info.editable_guidelines.as_path()])
+        .chain(nested)
+    {
         let name = folder
             .file_name()
             .context("Project folder has no name")?
             .to_string_lossy();
-        let relative = if folder == &info.spec {
+        let relative = if folder == info.spec {
             "..".into()
         } else {
             format!("../../{name}")

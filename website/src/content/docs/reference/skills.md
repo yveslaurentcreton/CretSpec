@@ -31,8 +31,9 @@ The description explains when to use the skill. Detailed instructions and links 
 - Shared skills in working-tree mode: `<editable-guidelines>/skills/<name>/`, including uncommitted changes.
 - Shared skills in pinned mode: `<spec>/.local/guidelines/<commit>/skills/<name>/`; the editable source is a separate draft catalog.
 - Built-in `cspec-workspace`: embedded in the executable, reserved and versioned with CretSpec.
+- With [typed references](/CretSpec/reference/manifest/#schema-version-3): the `skills/` directory of each further guidelines reference (its snapshot when pinned), and the project, repository and guidelines skills of each referenced project.
 
-Names contain 1–64 lowercase ASCII letters, digits and single hyphens, with no leading/trailing hyphen or Windows device name. The YAML `name` must match its directory. The description must be nonempty and at most 1024 characters. UTF-8 and CRLF are accepted, including folded YAML descriptions. Duplicate active names across project, repository and shared sources are rejected instead of silently overriding one another; the error names both sources.
+Names contain 1–64 lowercase ASCII letters, digits and single hyphens, with no leading/trailing hyphen or Windows device name. The YAML `name` must match its directory. The description must be nonempty and at most 1024 characters. UTF-8 and CRLF are accepted, including folded YAML descriptions. Duplicate active names across the workspace's own project, repository and shared sources are rejected instead of silently overriding one another; the error names both sources. A name that also exists in a further guidelines reference or a referenced project resolves to the source with the highest [precedence](/CretSpec/reference/manifest/#precedence); sync and doctor warn which skill overrides which; identical copies, such as one repository reached twice, are silent. Invalid skills in a referenced project skip that source with a warning instead of stopping sync.
 
 The source directory may contain a `README.md` catalog alongside its skill directories. Each skill directory must contain `SKILL.md`. Resource names start with an ASCII letter/digit and contain only letters, digits, `.`, `_` or `-`; hidden names, device names, trailing dots and names differing only by case are rejected. Resources must be regular files and directories, with no symlinks. Limits are 128 KiB per `SKILL.md`, 256 files and 16 MiB per skill, eight nested directories, 128 skills per source and 64 MiB of active resources in total.
 
@@ -66,7 +67,7 @@ The Markdown body is required and holds the role's responsibilities. Unknown fie
 
 ## Generated files
 
-Selected integrations are generated at the outer workspace, spec, every declared repository and editable guidelines roots, and in each role folder under `roles/<name>/`. Paths in instructions are relative to their corresponding root. Moving the whole workspace keeps them usable; no generated absolute project binding exists.
+Selected integrations are generated at the outer workspace, spec, every declared repository, every repository of the reference tree and editable guidelines roots, and in each role folder under `roles/<name>/`. Each referenced project also gets a context file in the spec's `.local/context/`, with paths relative to the workspace root; `AGENTS.md` files refer to it where that project applies. Paths in instructions are relative to their corresponding root. Moving the whole workspace keeps them usable; no generated absolute project binding exists.
 
 Workspace and repository entry points are role-neutral. They describe every repository with its purpose and list the available roles. A role folder contains an `AGENTS.md` with the shared context and the role, Copilot and Cursor entry points with the shared context and the role, and the role's selected skills.
 
@@ -94,12 +95,12 @@ The new JSON responses have `schemaVersion: 1`. Errors go to stderr and command 
 
 | Command | Top-level fields |
 | --- | --- |
-| `context --json` | `schemaVersion`, `cliVersion`, `project`, `instructionSources`, `skillSources`, `skills`, `integration`, `compatibilityNotice`, `roleSource`, `roles`, `roleErrors`, `repositoryStates`, `undeclaredRepositories`, and `role` with `--role` |
-| `skill list --json` | `schemaVersion`, `active`, `sharedDrafts`, `draftErrors` |
+| `context --json` | `schemaVersion`, `cliVersion`, `project`, `instructionSources`, `instructionLayers`, `referenceWarnings`, `skillSources`, `skills`, `integration`, `compatibilityNotice`, `roleSource`, `roles`, `roleErrors`, `repositoryStates`, `undeclaredRepositories`, and `role` with `--role` |
+| `skill list --json` | `schemaVersion`, `active`, `sharedDrafts`, `draftErrors`, `warnings` |
 | `skill create ... --json` | `schemaVersion`, `name`, `scope`, `repository`, `source`, `nextStep` |
-| `sync --json` | `schemaVersion`, `written`, `removed`, `unchanged`, `released`, `compatibilityNotice` |
+| `sync --json` | `schemaVersion`, `written`, `removed`, `unchanged`, `released`, `compatibilityNotice`, `warnings` |
 
-`project` has the same fields as `project info`. `skillSources` has `project`, `shared` and `activeShared` paths, and `repositories` mapping each repository with a declared skill directory to its path. Skills have `name`, `description`, `scope` (`project`, `shared`, `repository` or `builtin`), `repository` for repository skills, and `source`; the built-in source is `null` because it is embedded. In working-tree mode, `shared` and `activeShared` point to the same source and `sharedDrafts` is empty. In pinned mode, working-copy entries are a separate editable catalog and may match adopted skills.
+`project` has the same fields as `project info`, including `tree`: `projects` (`name`, `path`, `source`, `depth`, `via`, `context`), `references` (the declaring `project` index, `name`, `type`, `path`, `active`, `priority`, `position`, `scope`, `child` and more) and `warnings`. Repositories in `project` have a `type`. `instructionLayers` lists the workspace's sources in precedence order, each with `label`, `files`, an optional `context` file and `appliesIn` folders when restricted. `skillSources` has `project`, `shared` and `activeShared` paths, and `repositories` mapping each repository with a declared skill directory to its path. Skills have `name`, `description`, `scope` (`project`, `shared`, `repository` or `builtin`), `repository` for repository skills, and `source`; the built-in source is `null` because it is embedded. In working-tree mode, `shared` and `activeShared` point to the same source and `sharedDrafts` is empty. In pinned mode, working-copy entries are a separate editable catalog and may match adopted skills.
 
 `project.lock` is `null` in working-tree mode. `project.guidelines` contains `mode`, `commit` (active HEAD), `branch`, `dirty`, `upstream`, `ahead` and `behind`. Branch and upstream may be `null`; divergence counts are `null` when unavailable. Counts use locally cached upstream refs and say nothing about remote freshness. With local changes, HEAD does not identify the exact active contents. Pinned snapshots have a detached HEAD and no upstream.
 

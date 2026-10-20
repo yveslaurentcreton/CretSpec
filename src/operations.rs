@@ -63,9 +63,7 @@ fn declared_repository(spec: &Path, value: &str) -> Result<Repository> {
         path: (path != name).then(|| path.to_owned()),
         name,
         url,
-        purpose: None,
-        profile: None,
-        skills: None,
+        ..Repository::default()
     })
 }
 
@@ -339,6 +337,9 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
                     detail: format!("Warning: {}", warnings.join("; ")),
                 });
             }
+            if info.tree.layered() || !info.tree.warnings.is_empty() {
+                checks.push(references_check(&info));
+            }
             let warnings = crate::agents::claude_warnings(&info);
             if !warnings.is_empty() {
                 checks.push(Check {
@@ -399,6 +400,30 @@ pub fn diagnose(start: &Path) -> Vec<Check> {
         }),
     }
     checks
+}
+
+fn references_check(info: &workspace::ProjectInfo) -> Check {
+    let tree = &info.tree;
+    let projects = tree.projects.len() - 1;
+    let guidelines = tree
+        .references
+        .iter()
+        .filter(|r| r.kind == manifest::Kind::Guidelines)
+        .count();
+    let mut detail = format!(
+        "{projects} referenced {} and {guidelines} guidelines {} resolved",
+        if projects == 1 { "project" } else { "projects" },
+        if guidelines == 1 { "source" } else { "sources" }
+    );
+    let warnings = crate::agents::reference_warnings(info);
+    if !warnings.is_empty() {
+        detail.push_str(&format!(". Warning: {}", warnings.join("; ")));
+    }
+    Check {
+        name: "References".into(),
+        ok: true,
+        detail,
+    }
 }
 
 fn repositories_check(info: &workspace::ProjectInfo) -> Check {
@@ -620,8 +645,37 @@ fn save_definition(
     Ok(())
 }
 
+/// Converts a schema version 2 definition to the current schema. The generated context
+/// stays the same; the new schema only allows typed references.
+pub fn migrate(start: &Path, preview: bool) -> Result<(u32, u32)> {
+    let info = workspace::info(start, false, &|_| {})?;
+    let from = info.manifest.schema_version;
+    let to = manifest::CURRENT_SCHEMA;
+    match from {
+        1 => bail!(
+            "Schema version 1 names one code repository by its location next to the spec. Declare it by name first: set schemaVersion 2, move code.repository to repositories (name, url and path {}) and the profile to that repository, then run cspec sync and cspec project migrate.",
+            info.manifest.name
+        ),
+        version if version == to => return Ok((from, to)),
+        _ => {}
+    }
+    let mut definition = info.manifest.clone();
+    definition.schema_version = to;
+    manifest::validate(&definition, info.lock.as_ref())?;
+    if !preview {
+        save_definition(&info, definition, info.lock.clone())?;
+        refresh_agents(&info.spec)?;
+    }
+    Ok((from, to))
+}
+
 pub fn recover(start: &Path) -> Result<PathBuf> {
-    let spec = workspace::discover_spec(start)?;
+    // A referenced project's spec is recovered itself, not the workspace around it.
+    let given = git::root(&files::absolute(start)?).ok();
+    let spec = match given {
+        Some(root) if files::exists(&root.join(".local/definition-update.json"))? => root,
+        _ => workspace::discover_spec(start)?,
+    };
     let journal_path = workspace::local_directory(&spec, false)?.join("definition-update.json");
     let journal: Journal =
         files::read_json(&journal_path).context("No readable update journal is available")?;

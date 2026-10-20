@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CretSpec project manifest",
-  "description": "Schema version 1 names one code repository. Schema version 2 names any number of repositories; the spec repository may also contain product code.",
-  "oneOf": [{ "$ref": "#/$defs/version1" }, { "$ref": "#/$defs/version2" }],
+  "description": "Schema version 1 names one code repository. Schema version 2 names any number of repositories; the spec repository may also contain product code. Schema version 3 adds typed references to further guidelines and other CretSpec projects.",
+  "oneOf": [{ "$ref": "#/$defs/version1" }, { "$ref": "#/$defs/version2" }, { "$ref": "#/$defs/version3" }],
   "$defs": {
     "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]*$" },
     "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
@@ -23,6 +23,16 @@
         "mode": { "enum": ["workingTree", "pinned"], "description": "Omit to infer pinned when a lock exists, workingTree otherwise. Explicit modes require matching lock presence." }
       }
     },
+    "specRepository": {
+      "type": "object", "additionalProperties": false,
+      "description": "Describes the repository containing project.json. It may also contain product code.",
+      "properties": {
+        "name": { "$ref": "#/$defs/repositoryName", "default": "spec" },
+        "purpose": { "$ref": "#/$defs/purpose" },
+        "profile": { "$ref": "#/$defs/profile" }
+      }
+    },
+    "relativePath": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*){0,7}$" },
     "agents": {
       "type": "array", "uniqueItems": true,
       "items": { "enum": ["codex", "claude", "copilot", "cursor"] },
@@ -73,6 +83,40 @@
               "purpose": { "$ref": "#/$defs/purpose" },
               "profile": { "$ref": "#/$defs/profile" },
               "skills": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*){0,7}$", "description": "The repository's own skill directory, relative to the repository, for example spec/skills. Requires CretSpec 0.6.0 or later." }
+            }
+          }
+        },
+        "guidelines": { "$ref": "#/$defs/guidelines" },
+        "agents": { "$ref": "#/$defs/agents" }
+      }
+    },
+    "version3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "name", "repositories", "guidelines"],
+      "description": "Version 2 plus typed references. Requires CretSpec 0.8.0 or later; cspec project migrate converts version 2.",
+      "properties": {
+        "schemaVersion": { "const": 3 },
+        "name": { "$ref": "#/$defs/name" },
+        "specRepository": { "$ref": "#/$defs/specRepository" },
+        "repositories": {
+          "type": "array", "maxItems": 64,
+          "description": "Code repositories, further guidelines and referenced CretSpec projects. A referenced project's own references are resolved as well; a cycle is an error.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "url"],
+            "properties": {
+              "name": { "$ref": "#/$defs/repositoryName" },
+              "type": { "enum": ["code", "guidelines", "project"], "default": "code", "description": "code: a repository of the workspace. guidelines: further guidance with instructions and skills. project: another CretSpec project." },
+              "url": { "type": "string", "minLength": 1, "description": "HTTPS, SSH or local Git source without credentials. Relative references resolve against the spec source." },
+              "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "Directory in the project root. Defaults to name." },
+              "purpose": { "$ref": "#/$defs/purpose" },
+              "profile": { "$ref": "#/$defs/profile", "description": "Code only." },
+              "skills": { "$ref": "#/$defs/relativePath", "description": "Code: the repository's own skill directory, for example spec/skills. Guidelines: the skill directory, by default skills. Not valid for projects." },
+              "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$", "description": "Guidelines, required: the branch of a working tree, or the selected version when commit pins it." },
+              "commit": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$", "description": "Guidelines: the exact commit that pins this reference." },
+              "scope": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/repositoryName" }, "description": "Guidelines: the repositories of this definition where the guidance applies. Omit to apply it everywhere." },
+              "priority": { "type": "integer", "description": "Guidelines and projects: a higher priority comes earlier in the precedence order, together with everything a referenced project brings. Defaults to 0; ties keep declaration order, with the project's own guidelines first." },
+              "instructions": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/relativePath" }, "description": "Guidelines: files to read, relative to the repository. Defaults to README.md, guidelines/principles.md, guidelines/specification.md and the selected profiles." }
             }
           }
         },

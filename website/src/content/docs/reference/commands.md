@@ -5,7 +5,7 @@ description: Complete command and option reference for cspec.
 
 Use `cspec --help` or append `--help` at any command level. `cspec --version` reports the installed executable version. With no arguments, CretSpec prints help successfully.
 
-`[location]` defaults to the current directory. Project discovery works from the outer project root, a role folder, the spec, any declared repository or the editable guidelines clone, and their subdirectories. Inaccessible directories are skipped. An explicit spec directory resolves ambiguity.
+`[location]` defaults to the current directory. Project discovery works from the outer project root, a role folder, the spec, any declared repository, any repository of the [reference tree](/CretSpec/reference/manifest/#the-reference-tree) or the editable guidelines clone, and their subdirectories. Inside a referenced project's spec, commands act on the workspace that references it. Inaccessible directories are skipped. An explicit spec directory resolves ambiguity.
 
 ## Configuration
 
@@ -23,7 +23,7 @@ Clone, attach, info and open also synchronize selected local agent integrations.
 cspec project clone <spec> [destination]
 ```
 
-Clones the spec first, validates its definition, then clones every declared repository and the editable guidelines and selects the configured branch in the new guidelines checkout, or prepares the locked snapshot for a pinned project. Sources can be a configured short name, full Git URL or explicit local path. The destination must not already exist. Without it, the manifest's project name becomes the outer directory name. Progress goes to stderr; the successful summary goes to stdout.
+Clones the spec first, validates its definition, then clones every declared repository, the repositories of referenced projects and the editable guidelines and selects the configured branch in the new guidelines checkout, or prepares the locked snapshot for a pinned project. Sources can be a configured short name, full Git URL or explicit local path. The destination must not already exist. Without it, the manifest's project name becomes the outer directory name. Progress goes to stderr; the successful summary goes to stdout.
 
 ```text
 cspec project init <directory> --name <name> --guidelines <repository>
@@ -40,7 +40,7 @@ cspec project attach <spec> [--clone-missing]
 cspec project attach <code> <spec>
 ```
 
-Includes existing clones in place. The first form checks every declared repository at its declared path: it must be the root of its own Git repository with a matching origin. All problems are reported together before anything is written. Missing repositories stop the command unless `--clone-missing` clones them. The project root must not be inside a Git repository. The second form is the version 1 syntax and verifies the given code folder.
+Includes existing clones in place. The first form checks every declared repository at its declared path: it must be the root of its own Git repository with a matching origin. All problems are reported together before anything is written. Missing repositories stop the command unless `--clone-missing` clones them; with `--clone-missing`, missing repositories of referenced projects are cloned too. The project root must not be inside a Git repository. The second form is the version 1 syntax and verifies the given code folder.
 
 Attach then prepares missing guideline context and synchronizes agent integrations. It reports each repository's branch and whether local changes were preserved, and warns about undeclared Git repositories in the project root. It never changes branches, commits, origins or tracked files.
 
@@ -51,12 +51,18 @@ cspec project info [location]
 Prints JSON with `projectRoot`, `spec`, `code` (version 1 only), `specRepository`, `repositories`, `editableGuidelines`, `activeGuidelines`, `manifest`, `lock` and `guidelines`. `specRepository` has `name`, `path`, `purpose` and `profile`. Each repository has `name`, `path`, `source`, `purpose` and `profile`; a version 1 code repository is named `code`. `lock` is nullable; `guidelines` reports mode and local Git state. May clone missing guidelines and generate ignored context. Every declared repository must exist.
 
 ```text
+cspec project migrate [location] [--preview]
+```
+
+Converts a schema version 2 definition to the newest schema, [version 3](/CretSpec/reference/manifest/#schema-version-3), and synchronizes agent integrations. Only `schemaVersion` changes, so the generated context stays the same. `--preview` changes nothing. A definition that is already current is left unchanged. Version 1 must first be converted to version 2 by hand; the error explains how. Review and commit `project.json` afterwards; older executables cannot read it.
+
+```text
 cspec project doctor [location] [--json]
 ```
 
 Checks Git availability, definition, origins and active guidelines (plus lock/snapshot when pinned) without changing files or fetching. `--json` prints an array of `{ "name", "ok", "detail" }` checks to stdout. Missing generated context is a failed check with preparation instructions.
 
-Also checks active skill sources, role sources, generated instructions/resources, Git exclusions and pending synchronization. The `Repositories` check confirms the declared repositories and warns about undeclared Git repositories in the project root. A stale Codex override names the tracked `AGENTS.md` that changed. An `Agent instruction size` warning appears when a generated Codex entry point exceeds Codex's default 32 KiB instruction limit. When Claude Code is selected, a `Claude Code entry points` warning names each `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the workspace, a role folder, a member repository or above the workspace that makes Claude Code skip `AGENTS.md`. Working-tree notices report dirty files, a detached or unexpected branch, missing upstream and cached ahead/behind counts without failing an otherwise healthy project. It does not fetch to determine remote freshness, launch an agent or verify its runtime discovery.
+Also checks active skill sources, role sources, generated instructions/resources, Git exclusions and pending synchronization. The `Repositories` check confirms the declared repositories and warns about undeclared Git repositories in the project root. A stale Codex override names the tracked `AGENTS.md` that changed. A `References` check appears for a workspace with typed references: it counts the referenced projects and guidelines sources and warns about missing or invalid repositories deeper in the tree, branch conflicts and overridden skills. An `Agent instruction size` warning appears when a generated Codex entry point exceeds Codex's default 32 KiB instruction limit. When Claude Code is selected, a `Claude Code entry points` warning names each `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the workspace, a role folder, a member repository or above the workspace that makes Claude Code skip `AGENTS.md`. Working-tree notices report dirty files, a detached or unexpected branch, missing upstream and cached ahead/behind counts without failing an otherwise healthy project. It does not fetch to determine remote freshness, launch an agent or verify its runtime discovery.
 
 ```text
 cspec project open [location] [--print]
@@ -107,7 +113,7 @@ Read-only workspace context: source paths, repositories with their branch and lo
 cspec skill list [location] [--json]
 ```
 
-Lists active built-in, project, repository and shared skills, with the declaring repository of each repository skill. Working-tree mode reads local shared changes directly; pinned mode also provides a separate draft catalog. Invalid pinned-mode drafts are reported in `draftErrors`; invalid active skills fail the command. No files are changed and no scripts run.
+Lists active built-in, project, repository and shared skills, with the declaring repository of each repository skill and the referenced project or guidelines reference a skill comes from. Overridden skills and skipped skill sources of referenced projects are reported as warnings and in `warnings`. Working-tree mode reads local shared changes directly; pinned mode also provides a separate draft catalog. Invalid pinned-mode drafts are reported in `draftErrors`; invalid active skills fail the command. No files are changed and no scripts run.
 
 ```text
 cspec skill create <name> --scope <project|shared|repository> [--repository <name>]
@@ -122,7 +128,7 @@ cspec sync [location] [--json]
 
 Rebuilds selected agent instructions, role folders and full skill bundles from the current spec and active guidelines source. Uses ordinary files, no symlinks, and preserves existing user content. Removes only unchanged outputs it previously owned. A pending synchronization can be retried with this command. It does not fetch, change the definition or create a missing snapshot; first use `project info` if preparation is missing.
 
-`--json` reports written, removed and unchanged counts plus any compatibility notice. See [generated-file ownership and recovery](/CretSpec/reference/skills/#generated-files).
+`--json` reports written, removed and unchanged counts plus any compatibility notice and `warnings` about the reference tree and overridden skills. See [generated-file ownership and recovery](/CretSpec/reference/skills/#generated-files).
 
 ## Exit status and output
 

@@ -1,4 +1,4 @@
-use crate::{files, git, workspace::ProjectInfo};
+use crate::{files, git, manifest::Kind, tree::Tree, workspace::ProjectInfo};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -28,19 +28,28 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub scope: Scope,
-    /// The declaring repository of a repository skill.
+    /// The declaring repository of a repository skill, or the guidelines reference of a
+    /// shared skill that does not come from the project's own guidelines.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
+    /// The referenced project that provides the skill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     pub source: Option<PathBuf>,
 }
 
 impl Skill {
-    fn origin(&self) -> String {
-        match (self.scope, &self.repository) {
+    pub fn origin(&self) -> String {
+        let base = match (self.scope, &self.repository) {
             (Scope::Repository, Some(repository)) => format!("repository `{repository}`"),
+            (Scope::Shared, Some(repository)) => format!("guidelines `{repository}`"),
             (Scope::Project, _) => "the project source".into(),
             (Scope::Shared, _) => "the active shared source".into(),
             _ => "the built-in source".into(),
+        };
+        match &self.project {
+            Some(project) => format!("{base} of referenced project `{project}`"),
+            None => base,
         }
     }
 }
@@ -63,6 +72,9 @@ pub struct Inventory {
     pub active: Vec<Skill>,
     pub shared_drafts: Vec<Skill>,
     pub draft_errors: Vec<String>,
+    /// Skills that a source with higher precedence overrides, and skipped skill sources of
+    /// referenced projects.
+    pub warnings: Vec<String>,
 }
 
 pub fn valid_name(name: &str) -> bool {
@@ -168,6 +180,7 @@ fn header(bytes: &[u8], expected: &str, scope: Scope, source: Option<PathBuf>) -
         description: parsed.description,
         scope,
         repository: None,
+        project: None,
         source,
     })
 }
@@ -295,10 +308,157 @@ fn scan(root: &Path, scope: Scope) -> Result<Vec<Bundle>> {
     Ok(bundles)
 }
 
+/// A skill directory with its rank in the precedence order. Collisions inside the
+/// workspace's own sources stop synchronization; any other collision resolves to the
+/// source with the highest precedence.
+struct SkillSource {
+    rank: usize,
+    own: bool,
+    directory: PathBuf,
+    /// The repository folder the directory lies in, checked without following links.
+    base: PathBuf,
+    scope: Scope,
+    repository: Option<String>,
+    project: Option<String>,
+    /// A pinned snapshot, whose skills must all be tracked by Git.
+    pinned: bool,
+    /// A source of a referenced project: its problems are warnings, not errors.
+    nested: bool,
+}
+
+/// The order of layers: a project's own sources, then its references by precedence,
+/// with each referenced project expanded in place the first time it is reached.
+fn layers(
+    tree: &Tree,
+    project: usize,
+    visited: &mut BTreeSet<usize>,
+    result: &mut Vec<(usize, Option<usize>)>,
+) {
+    if !visited.insert(project) {
+        return;
+    }
+    result.push((project, None));
+    for index in tree.ordered(project) {
+        let reference = &tree.references[index];
+        match (reference.kind, reference.child) {
+            (Kind::Guidelines, _) => result.push((project, Some(index))),
+            (Kind::Project, Some(child)) => layers(tree, child, visited, result),
+            _ => {}
+        }
+    }
+}
+
+fn skill_sources(info: &ProjectInfo) -> Vec<SkillSource> {
+    let tree = &info.tree;
+    let mut order = Vec::new();
+    layers(tree, 0, &mut BTreeSet::new(), &mut order);
+    let mut result = Vec::new();
+    for (rank, (project, layer)) in order.into_iter().enumerate() {
+        let name = (project != 0).then(|| tree.projects[project].name.clone());
+        match layer {
+            None => {
+                let spec = if project == 0 {
+                    info.spec.clone()
+                } else {
+                    tree.projects[project].path.clone()
+                };
+                result.push(SkillSource {
+                    rank,
+                    own: project == 0,
+                    directory: spec.join("spec/skills"),
+                    base: spec,
+                    scope: Scope::Project,
+                    repository: None,
+                    project: name.clone(),
+                    pinned: false,
+                    nested: project != 0,
+                });
+                let code = tree
+                    .references
+                    .iter()
+                    .filter(|r| r.project == project && r.kind == Kind::Code);
+                for reference in code {
+                    let Some(directory) = &reference.skills else {
+                        continue;
+                    };
+                    result.push(SkillSource {
+                        rank,
+                        own: project == 0,
+                        directory: directory.clone(),
+                        base: reference.path.clone(),
+                        scope: Scope::Repository,
+                        repository: Some(reference.name.clone()),
+                        project: name.clone(),
+                        pinned: false,
+                        nested: project != 0,
+                    });
+                }
+            }
+            Some(index) => {
+                let reference = &tree.references[index];
+                // The workspace's own guidelines may be a proposed version during adoption.
+                let (active, pinned) = if project == 0 && reference.primary {
+                    (info.active_guidelines.clone(), info.lock.is_some())
+                } else {
+                    (reference.active.clone(), reference.commit.is_some())
+                };
+                let directory = if project == 0 && reference.primary {
+                    active.join("skills")
+                } else {
+                    reference
+                        .skills
+                        .clone()
+                        .unwrap_or_else(|| active.join("skills"))
+                };
+                result.push(SkillSource {
+                    rank,
+                    own: project == 0 && reference.primary,
+                    directory,
+                    base: active,
+                    scope: Scope::Shared,
+                    repository: (!reference.primary).then(|| reference.name.clone()),
+                    project: name.clone(),
+                    pinned,
+                    nested: project != 0,
+                });
+            }
+        }
+    }
+    result
+}
+
+/// Rejects files in a pinned snapshot's skills that Git does not track.
+fn check_tracked(base: &Path, directory: &Path, found: &[Bundle]) -> Result<()> {
+    let relative = directory
+        .strip_prefix(base)
+        .context("Skill directory escapes its repository")?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let tracked = git::run(base, ["ls-files", "-z", "--", &relative])?;
+    let tracked: BTreeSet<_> = tracked.split('\0').collect();
+    for bundle in found {
+        for name in bundle.files.keys() {
+            let path = format!("{relative}/{}/{name}", bundle.skill.name);
+            if !tracked.contains(path.as_str()) {
+                bail!(
+                    "Adopted skill contains a file outside the locked Git snapshot: {path}. Preserve and remove that local addition before retrying."
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn active(info: &ProjectInfo) -> Result<Vec<Bundle>> {
+    Ok(resolve(info)?.0)
+}
+
+/// The active skills, and warnings for skills that a source with higher precedence overrides
+/// and for skipped skill sources of referenced projects.
+pub fn resolve(info: &ProjectInfo) -> Result<(Vec<Bundle>, Vec<String>)> {
     // Check the source parent as well, so a replaced spec/ directory is never followed.
     files::directory(&info.spec.join("spec"))?;
-    let mut bundles = vec![Bundle {
+    let builtin = Bundle {
         skill: header(BUILTIN.as_bytes(), BUILTIN_NAME, Scope::Builtin, None)?,
         files: BTreeMap::from([(
             "SKILL.md".into(),
@@ -307,49 +467,109 @@ pub fn active(info: &ProjectInfo) -> Result<Vec<Bundle>> {
                 executable: false,
             },
         )]),
-    }];
-    bundles.extend(scan(&info.spec.join("spec/skills"), Scope::Project)?);
-    let adopted = scan(&info.active_guidelines.join("skills"), Scope::Shared)?;
-    if info.lock.is_some() {
-        let tracked = git::run(&info.active_guidelines, ["ls-files", "-z", "--", "skills"])?;
-        let tracked: BTreeSet<_> = tracked.split('\0').collect();
-        for bundle in &adopted {
-            for name in bundle.files.keys() {
-                let path = format!("skills/{}/{name}", bundle.skill.name);
-                if !tracked.contains(path.as_str()) {
-                    bail!(
-                        "Adopted skill contains a file outside the locked Git snapshot: {path}. Preserve and remove that local addition before retrying."
-                    );
-                }
+    };
+    let mut ranked = vec![(0, true, builtin)];
+    let mut warnings = Vec::new();
+    let mut seen = BTreeSet::new();
+    for source in skill_sources(info) {
+        // A directory that several projects share is read once, at its highest precedence.
+        if !seen.insert(source.directory.clone()) {
+            continue;
+        }
+        let read = (|| -> Result<Option<Vec<Bundle>>> {
+            // A repository that does not exist yet, or has no skill directory yet, has no skills.
+            if !files::exists(&source.base)? || !source_present(&source.base, &source.directory)? {
+                return Ok(None);
             }
-        }
-    }
-    bundles.extend(adopted);
-    for repository in &info.repositories {
-        let Some(directory) = &repository.skills else {
-            continue;
+            let found = scan(&source.directory, source.scope)?;
+            if source.pinned {
+                check_tracked(&source.base, &source.directory, &found)?;
+            }
+            Ok(Some(found))
+        })();
+        let mut found = match read {
+            Ok(Some(found)) => found,
+            Ok(None) => continue,
+            Err(error) if source.nested => {
+                warnings.push(format!(
+                    "Skills in {} of referenced project `{}` were skipped: {error:#}",
+                    source.directory.display(),
+                    source.project.as_deref().unwrap_or_default()
+                ));
+                continue;
+            }
+            Err(error) => return Err(error),
         };
-        // A repository that does not exist yet, or has no skill directory yet, has no skills.
-        if !files::exists(&repository.path)? || !source_present(&repository.path, directory)? {
-            continue;
-        }
-        let mut found = scan(directory, Scope::Repository)?;
         for bundle in &mut found {
-            bundle.skill.repository = Some(repository.name.clone());
+            bundle.skill.repository = source.repository.clone();
+            bundle.skill.project = source.project.clone();
         }
-        bundles.extend(found);
+        ranked.extend(found.into_iter().map(|b| (source.rank, source.own, b)));
     }
-    bundles.sort_by(|a, b| a.skill.name.cmp(&b.skill.name));
-    for pair in bundles.windows(2) {
-        if pair[0].skill.name == pair[1].skill.name {
+    // Own sources keep the order of earlier versions in conflict messages.
+    let order = |scope: Scope| match scope {
+        Scope::Builtin => 0,
+        Scope::Project => 1,
+        Scope::Shared => 2,
+        Scope::Repository => 3,
+    };
+    ranked.sort_by(|a, b| a.2.skill.name.cmp(&b.2.skill.name));
+    let mut bundles: Vec<Bundle> = Vec::new();
+    let mut overridden = warnings;
+    let mut group: Vec<(usize, bool, Bundle)> = Vec::new();
+    let mut finish = |group: &mut Vec<(usize, bool, Bundle)>| -> Result<()> {
+        if group.is_empty() {
+            return Ok(());
+        }
+        let own: Vec<_> = group.iter().filter(|g| g.1).collect();
+        if own.len() > 1 {
+            let mut own = own;
+            own.sort_by_key(|g| order(g.2.skill.scope));
             bail!(
                 "Skill '{}' exists in both {} and {}. Rename one source skill before synchronizing.",
-                pair[0].skill.name,
-                pair[0].skill.origin(),
-                pair[1].skill.origin()
+                own[0].2.skill.name,
+                own[0].2.skill.origin(),
+                own[1].2.skill.origin()
             );
         }
+        let mut members = std::mem::take(group);
+        members.sort_by_key(|g| (g.0, order(g.2.skill.scope)));
+        let mut members = members.into_iter();
+        let (_, _, winner) = members.next().expect("a group has members");
+        let same = |a: &Bundle, b: &Bundle| {
+            a.files.len() == b.files.len()
+                && a.files.iter().zip(&b.files).all(|((m, x), (n, y))| {
+                    m == n && x.bytes == y.bytes && x.executable == y.executable
+                })
+        };
+        let mut reported: Vec<Bundle> = Vec::new();
+        for (_, _, loser) in members {
+            // Identical copies, such as one repository at two places in the tree, are
+            // silent or reported once.
+            if same(&loser, &winner) || reported.iter().any(|r| same(r, &loser)) {
+                continue;
+            }
+            overridden.push(format!(
+                "Skill '{}' from {} overrides the one from {}",
+                winner.skill.name,
+                winner.skill.origin(),
+                loser.skill.origin()
+            ));
+            reported.push(loser);
+        }
+        bundles.push(winner);
+        Ok(())
+    };
+    for entry in ranked {
+        if group
+            .last()
+            .is_some_and(|g| g.2.skill.name != entry.2.skill.name)
+        {
+            finish(&mut group)?;
+        }
+        group.push(entry);
     }
+    finish(&mut group)?;
     let size: usize = bundles
         .iter()
         .flat_map(|b| b.files.values())
@@ -358,7 +578,7 @@ pub fn active(info: &ProjectInfo) -> Result<Vec<Bundle>> {
     if size > 64 * 1024 * 1024 {
         bail!("Active skill resources exceed 64 MiB");
     }
-    Ok(bundles)
+    Ok((bundles, overridden))
 }
 
 /// Creates the missing directories from `base` down to `path` without following links.
@@ -380,7 +600,8 @@ fn create_directories(base: &Path, path: &Path) -> Result<()> {
 }
 
 pub fn inventory(info: &ProjectInfo) -> Result<Inventory> {
-    let active = active(info)?.into_iter().map(|b| b.skill).collect();
+    let (active, warnings) = resolve(info)?;
+    let active = active.into_iter().map(|b| b.skill).collect();
     let (shared_drafts, draft_errors) = if info.lock.is_none() {
         (vec![], vec![])
     } else {
@@ -394,6 +615,7 @@ pub fn inventory(info: &ProjectInfo) -> Result<Inventory> {
         active,
         shared_drafts,
         draft_errors,
+        warnings,
     })
 }
 
