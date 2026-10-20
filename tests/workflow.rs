@@ -2747,11 +2747,15 @@ fn references_resolve_a_tree_with_precedence_scope_and_context_files() {
     );
 
     // Inside the referenced project, commands still act on the workspace.
+    let canonical = |path: PathBuf| fs::canonicalize(path).unwrap();
     assert_eq!(
-        workspace::find_spec(&root.join("Child-spec/spec")).unwrap(),
-        info.spec
+        canonical(workspace::find_spec(&root.join("Child-spec/spec")).unwrap()),
+        canonical(info.spec.clone())
     );
-    assert_eq!(workspace::find_spec(root).unwrap(), info.spec);
+    assert_eq!(
+        canonical(workspace::find_spec(root).unwrap()),
+        canonical(info.spec.clone())
+    );
     let context = fs::read_to_string(info.spec.join(".local/context/Child-spec.md")).unwrap();
     assert!(
         context.starts_with("# Referenced project `Child`"),
@@ -3135,8 +3139,8 @@ fn diamonds_shared_repositories_and_folder_collisions_resolve_stably() {
     // Discovery finds the workspace from every folder, including a prefixed one.
     for folder in ["", "infra", "Other-spec", "Grand-spec", "Other-spec-Lib"] {
         assert_eq!(
-            workspace::find_spec(&root.join(folder)).unwrap(),
-            info.spec,
+            fs::canonicalize(workspace::find_spec(&root.join(folder)).unwrap()).unwrap(),
+            fs::canonicalize(&info.spec).unwrap(),
             "{folder}"
         );
     }
