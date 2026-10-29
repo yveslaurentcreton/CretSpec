@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -18,10 +17,17 @@ class Packages(unittest.TestCase):
                 self.assertEqual(data, package.archive_bytes(target, contents))
                 (root / package.archive_name("0.4.0", target)).write_bytes(data)
             package.metadata(root, root / "packages", "0.4.0")
-            manifest = next((root / "packages/winget").rglob("*.installer.yaml"))
-            installer = json.loads(manifest.read_text().split("\n", 1)[1])["Installers"][0]
+            manifest = next((root / "packages/winget").rglob("*.installer.yaml")).read_text()
             expected = package.inspect_archive(root / package.archive_name("0.4.0", package.TARGETS[0]), package.TARGETS[0])
-            self.assertEqual(installer["InstallerSha256"], expected.upper())
+            self.assertIn(f"  InstallerSha256: {expected.upper()}\n", manifest)
+            self.assertIn("NestedInstallerFiles:\n- RelativeFilePath: cspec.exe\n  PortableCommandAlias: cspec\n", manifest)
+            self.assertIn("UpgradeBehavior: uninstallPrevious\n", manifest)
+            self.assertNotIn("Commands:", manifest)
+            for path in (root / "packages/winget").rglob("*.yaml"):
+                lines = path.read_text().splitlines()
+                self.assertTrue(lines[0].startswith("# yaml-language-server: $schema="))
+                self.assertEqual(lines[-1], "ManifestVersion: 1.12.0")
+                self.assertFalse(any(character in path.read_text() for character in "{}[]\""))
             self.assertEqual(len((root / "SHA256SUMS").read_text().splitlines()), 4)
             self.assertIn("pkgver=0.4.0", (root / "packages/aur/PKGBUILD").read_text())
 
@@ -51,6 +57,17 @@ class Packages(unittest.TestCase):
                          ["KERNEL32.dll", "ntdll.dll"])
         with self.assertRaises(ValueError):
             package.pe_imports(b"\x7fELF" + bytes(512))
+
+    def test_yaml_scalars_stay_strings(self):
+        self.assertEqual(package.yaml_scalar("0.8.1"), "0.8.1")
+        self.assertEqual(package.yaml_scalar("https://example.com/a-b_c.zip"), "https://example.com/a-b_c.zip")
+        self.assertEqual(package.yaml_scalar("1.12"), "'1.12'")
+        self.assertEqual(package.yaml_scalar("12E4"), "'12E4'")
+        self.assertEqual(package.yaml_scalar("yes"), "'yes'")
+        self.assertEqual(package.yaml_scalar("a: b"), "'a: b'")
+        self.assertEqual(package.yaml_scalar("it's"), "'it''s'")
+        self.assertEqual(package.yaml_lines({"A": [{"B": "c", "D": {"E": ["f"]}}]}),
+                         ["A:", "- B: c", "  D:", "    E:", "    - f"])
 
 
 def portable_executable(dlls):

@@ -7,8 +7,8 @@ if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Run this installation/removal test 
 $name = 'CretSpec'
 $manifest = Get-ChildItem -LiteralPath $Directory -Filter '*.installer.yaml' -Recurse -File
 if (@($manifest).Count -ne 1) { throw 'Expected one installer manifest.' }
-$data = (Get-Content -LiteralPath $manifest.FullName | Where-Object { $_ -notmatch '^#' }) -join "`n" | ConvertFrom-Json
-$version = $data.PackageVersion
+$version = (Select-String -LiteralPath $manifest.FullName -Pattern '^PackageVersion: (\S+)$').Matches[0].Groups[1].Value
+if (!$version) { throw 'Missing PackageVersion.' }
 winget settings --enable LocalManifestFiles
 try {
     winget validate --manifest $manifest.DirectoryName --disable-interactivity
