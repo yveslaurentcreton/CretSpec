@@ -198,24 +198,26 @@ end
 '''
     write(output / "homebrew/Formula/cretspec.rb", formula)
     identifier = "YvesLaurentCreton.CretSpec"
-    common = {"PackageIdentifier": identifier, "PackageVersion": release, "ManifestVersion": "1.12.0"}
+    common = {"PackageIdentifier": identifier, "PackageVersion": release}
     documents = {
         "": dict(common, DefaultLocale="en-US", ManifestType="version"),
         ".locale.en-US": dict(common, PackageLocale="en-US", Publisher="Yves-Laurent Creton",
             PackageName="CretSpec", License="MIT", LicenseUrl=f"{REPOSITORY}/blob/v{release}/LICENSE",
             ShortDescription="Prepare a complete development project from its specification",
             PackageUrl=REPOSITORY, Moniker="cspec", ManifestType="defaultLocale"),
+        # A portable zip installer exposes its command through PortableCommandAlias.
         ".installer": dict(common, InstallerType="zip", NestedInstallerType="portable",
             NestedInstallerFiles=[{"RelativeFilePath": "cspec.exe", "PortableCommandAlias": "cspec"}],
             Dependencies={"PackageDependencies": [{"PackageIdentifier": "Git.Git"}]},
-            Commands=["cspec"], UpgradeBehavior="install", Installers=[{
+            UpgradeBehavior="uninstallPrevious", Installers=[{
                 "Architecture": "x64", "InstallerUrl": urls[TARGETS[0]],
                 "InstallerSha256": hashes[TARGETS[0]].upper()}], ManifestType="installer"),
     }
     for suffix, data in documents.items():
-        # JSON is valid YAML 1.2; this keeps generation dependency-free.
-        header = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{data['ManifestType']}.1.12.0.schema.json\n"
-        write(output / f"winget/manifests/y/YvesLaurentCreton/CretSpec/{release}/{identifier}{suffix}.yaml", header + json.dumps(data, indent=2) + "\n")
+        data["ManifestVersion"] = "1.12.0"
+        header = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{data['ManifestType']}.1.12.0.schema.json\n\n"
+        write(output / f"winget/manifests/y/YvesLaurentCreton/CretSpec/{release}/{identifier}{suffix}.yaml",
+              header + "".join(line + "\n" for line in yaml_lines(data)))
     source = urls[TARGETS[1]]
     checksum = hashes[TARGETS[1]]
     write(output / "aur/PKGBUILD", f'''pkgname=cretspec-bin
@@ -258,6 +260,37 @@ package() {{
 
 pkgname = cretspec-bin
 ''')
+
+
+def yaml_lines(mapping, indent=0):
+    """Write a mapping in the block YAML style of the WinGet catalog."""
+    pad = " " * indent
+    lines = []
+    for key, value in mapping.items():
+        if isinstance(value, dict):
+            lines += [f"{pad}{key}:"] + yaml_lines(value, indent + 2)
+        elif isinstance(value, list):
+            lines.append(f"{pad}{key}:")
+            for item in value:
+                if isinstance(item, dict):
+                    nested = yaml_lines(item, indent + 2)
+                    lines += [f"{pad}- {nested[0].lstrip()}"] + nested[1:]
+                else:
+                    lines.append(f"{pad}- {yaml_scalar(item)}")
+        else:
+            lines.append(f"{pad}{key}: {yaml_scalar(value)}")
+    return lines
+
+
+def yaml_scalar(value):
+    """Quote a string only where plain YAML would change its meaning."""
+    text = str(value)
+    plain = re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._/:+()-]*", text) and ": " not in text and not text.endswith(":")
+    special = text.lower() in {"true", "false", "yes", "no", "on", "off", "null", "~"}
+    number = re.fullmatch(r"[-+]?(\d[\d_]*)?(\.\d*)?([eE][-+]?\d+)?", text)
+    if plain and not special and not number:
+        return text
+    return "'" + text.replace("'", "''") + "'"
 
 
 def write(path, content):
