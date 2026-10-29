@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/yveslaurentcreton/CretSpec/compare/v0.8.0...v0.8.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* link the C runtime statically on Windows ([0ec0c3c](https://github.com/yveslaurentcreton/CretSpec/commit/0ec0c3c0b3f78dfd2b61e37aebdc24ff9338ee56))
+* link the C runtime statically on Windows ([46db2ac](https://github.com/yveslaurentcreton/CretSpec/commit/46db2acc7b2be94c2fc7868e9cb0c2c9bc93d1ca))
+
 ## [0.8.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.7.0...v0.8.0) (2026-10-20)
 
 
