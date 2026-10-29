@@ -20,6 +20,9 @@ TARGETS = (
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
 )
+# DLLs that a clean Windows installation may lack: the Visual C++ runtime and
+# the Universal CRT forwarders.
+RUNTIME_DLL = re.compile(r"(vcruntime|msvcp|api-ms-win-crt-|ucrtbase)", re.IGNORECASE)
 
 
 def version():
@@ -60,7 +63,12 @@ def pack(target, binary, output):
     reported = subprocess.check_output([str(binary.resolve()), "--version"], text=True).strip()
     if reported != f"cspec {release}":
         raise ValueError(f"Binary version mismatch: {reported}")
-    contents = {"cspec.exe" if "windows" in target else "cspec": binary.read_bytes()}
+    executable = binary.read_bytes()
+    if "windows" in target:
+        runtime = sorted(name for name in pe_imports(executable) if RUNTIME_DLL.match(name))
+        if runtime:
+            raise ValueError("Link the C runtime statically; cspec.exe imports " + ", ".join(runtime))
+    contents = {"cspec.exe" if "windows" in target else "cspec": executable}
     contents.update({name: (ROOT / name).read_bytes() for name in ("LICENSE", "README.md")})
     contents["THIRD-PARTY.txt"] = dependency_notices(target)
     toolchain = Path(subprocess.check_output(["rustc", "--print", "sysroot"], cwd=ROOT, text=True).strip())
@@ -69,6 +77,40 @@ def pack(target, binary, output):
     destination = output / archive_name(release, target)
     destination.write_bytes(archive_bytes(target, contents))
     print(destination)
+
+
+def pe_imports(data):
+    """Return the DLL names in a PE32+ executable's import table."""
+    def u16(offset):
+        return int.from_bytes(data[offset:offset + 2], "little")
+
+    def u32(offset):
+        return int.from_bytes(data[offset:offset + 4], "little")
+
+    header = u32(0x3C)
+    if data[:2] != b"MZ" or data[header:header + 4] != b"PE\0\0":
+        raise ValueError("Not a PE executable")
+    coff = header + 4
+    optional = coff + 20
+    if u16(optional) != 0x20B:
+        raise ValueError("Not a PE32+ executable")
+    import_rva = u32(optional + 112 + 8)
+    sections = [(u32(entry + 12), max(u32(entry + 8), u32(entry + 16)), u32(entry + 20))
+                for entry in range(optional + u16(coff + 16), optional + u16(coff + 16) + 40 * u16(coff + 2), 40)]
+
+    def offset(rva):
+        for address, size, raw in sections:
+            if address <= rva < address + size:
+                return raw + rva - address
+        raise ValueError("Import table outside the sections")
+
+    names = []
+    descriptor = offset(import_rva) if import_rva else None
+    while descriptor is not None and any(data[descriptor:descriptor + 20]):
+        start = offset(u32(descriptor + 12))
+        names.append(data[start:data.index(b"\0", start)].decode("ascii"))
+        descriptor += 20
+    return names
 
 
 def dependency_notices(target):
