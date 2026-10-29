@@ -41,6 +41,50 @@ class Packages(unittest.TestCase):
             with self.assertRaises(ValueError):
                 package.inspect_archive(path, package.TARGETS[1])
 
+    def test_windows_runtime_imports_are_found(self):
+        executable = portable_executable(["KERNEL32.dll", "VCRUNTIME140.dll", "api-ms-win-crt-heap-l1-1-0.dll"])
+        imports = package.pe_imports(executable)
+        self.assertEqual(imports, ["KERNEL32.dll", "VCRUNTIME140.dll", "api-ms-win-crt-heap-l1-1-0.dll"])
+        self.assertEqual([name for name in imports if package.RUNTIME_DLL.match(name)],
+                         ["VCRUNTIME140.dll", "api-ms-win-crt-heap-l1-1-0.dll"])
+        self.assertEqual(package.pe_imports(portable_executable(["KERNEL32.dll", "ntdll.dll"])),
+                         ["KERNEL32.dll", "ntdll.dll"])
+        with self.assertRaises(ValueError):
+            package.pe_imports(b"\x7fELF" + bytes(512))
+
+
+def portable_executable(dlls):
+    """Build a minimal PE32+ image with one section that holds the import table."""
+    section_rva, raw_offset = 0x1000, 0x200
+    names = b""
+    name_offsets = []
+    table_size = 20 * (len(dlls) + 1)
+    for dll in dlls:
+        name_offsets.append(table_size + len(names))
+        names += dll.encode("ascii") + b"\0"
+    table = b"".join(bytes(12) + (section_rva + offset).to_bytes(4, "little") + bytes(4) for offset in name_offsets)
+    raw = table + bytes(20) + names
+    image = bytearray(raw_offset + len(raw))
+    image[0:2] = b"MZ"
+    image[0x3C:0x40] = (0x40).to_bytes(4, "little")
+    image[0x40:0x44] = b"PE\0\0"
+    coff = 0x44
+    image[coff:coff + 2] = (0x8664).to_bytes(2, "little")
+    image[coff + 2:coff + 4] = (1).to_bytes(2, "little")
+    image[coff + 16:coff + 18] = (240).to_bytes(2, "little")
+    optional = coff + 20
+    image[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    image[optional + 120:optional + 124] = section_rva.to_bytes(4, "little")
+    image[optional + 124:optional + 128] = len(raw).to_bytes(4, "little")
+    section = optional + 240
+    image[section:section + 6] = b".idata"
+    image[section + 8:section + 12] = len(raw).to_bytes(4, "little")
+    image[section + 12:section + 16] = section_rva.to_bytes(4, "little")
+    image[section + 16:section + 20] = len(raw).to_bytes(4, "little")
+    image[section + 20:section + 24] = raw_offset.to_bytes(4, "little")
+    image[raw_offset:] = raw
+    return bytes(image)
+
 
 if __name__ == "__main__":
     unittest.main()
