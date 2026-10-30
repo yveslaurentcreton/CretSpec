@@ -26,7 +26,8 @@ class Packages(unittest.TestCase):
             for path in (root / "packages/winget").rglob("*.yaml"):
                 lines = path.read_text().splitlines()
                 self.assertTrue(lines[0].startswith("# yaml-language-server: $schema="))
-                self.assertEqual(lines[-1], "ManifestVersion: 1.12.0")
+                self.assertIn(f".{package.WINGET_MANIFEST_VERSION}.schema.json", lines[0])
+                self.assertEqual(lines[-1], f"ManifestVersion: {package.WINGET_MANIFEST_VERSION}")
                 self.assertFalse(any(character in path.read_text() for character in "{}[]\""))
             self.assertEqual(len((root / "SHA256SUMS").read_text().splitlines()), 4)
             self.assertIn("pkgver=0.4.0", (root / "packages/aur/PKGBUILD").read_text())
