@@ -23,6 +23,9 @@ TARGETS = (
 # DLLs that a clean Windows installation may lack: the Visual C++ runtime and
 # the Universal CRT forwarders.
 RUNTIME_DLL = re.compile(r"(vcruntime|msvcp|api-ms-win-crt-|ucrtbase)", re.IGNORECASE)
+# The WinGet catalog rejects deprecated manifest versions; scripts/validate-winget.ps1
+# checks this version against its schema.
+WINGET_MANIFEST_VERSION = "1.28.0"
 
 
 def version():
@@ -214,8 +217,8 @@ end
                 "InstallerSha256": hashes[TARGETS[0]].upper()}], ManifestType="installer"),
     }
     for suffix, data in documents.items():
-        data["ManifestVersion"] = "1.12.0"
-        header = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{data['ManifestType']}.1.12.0.schema.json\n\n"
+        data["ManifestVersion"] = WINGET_MANIFEST_VERSION
+        header = f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{data['ManifestType']}.{WINGET_MANIFEST_VERSION}.schema.json\n\n"
         write(output / f"winget/manifests/y/YvesLaurentCreton/CretSpec/{release}/{identifier}{suffix}.yaml",
               header + "".join(line + "\n" for line in yaml_lines(data)))
     source = urls[TARGETS[1]]
