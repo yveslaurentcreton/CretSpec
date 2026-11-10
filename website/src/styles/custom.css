@@ -129,19 +129,6 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--brand-font-heading); letter-spacing:
 .terminal-body .prompt { color: #ffb49f; }
 .terminal-body .muted { color: #c4b6a9; }
 
-.workflow {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-block: 1px solid var(--sl-color-hairline-light);
-  margin-top: 3rem;
-}
-.workflow article { padding: 1.5rem 1.5rem 1.5rem 0; }
-.workflow article + article { border-left: 1px solid var(--sl-color-hairline-light); padding-left: 1.5rem; }
-.workflow .number { font: .7rem var(--sl-font-mono); color: var(--sl-color-text-accent); letter-spacing: .07em; }
-.workflow h2 { font-size: 1.1rem; margin: .8rem 0 .6rem !important; }
-.workflow p { font-size: .9rem; margin: 0; }
-.footnote { font-size: .8rem; color: var(--sl-color-gray-3); }
-
 .install-status {
   padding: .85rem 1rem;
   border-inline-start: 2px solid var(--sl-color-text-accent);
@@ -162,8 +149,6 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--brand-font-heading); letter-spacing:
 }
 @media (max-width: 42rem) {
   .install-options [role='tab'] { padding: .7rem .55rem; font-size: 1rem; }
-  .workflow { grid-template-columns: 1fr; }
-  .workflow article + article { border-left: 0; border-top: 1px solid var(--sl-color-hairline-light); padding-left: 0; }
   .terminal-body { padding: 1.1rem; font-size: .78rem; }
   .hero h1 { font-size: clamp(2.65rem, 11vw, 3.5rem); }
 }

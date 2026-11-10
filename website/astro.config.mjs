@@ -23,17 +23,21 @@ export default defineConfig({
     sidebar: [
       { label: 'Start here', items: [
         { label: 'Install', slug: 'start/install' },
-        { label: 'Clone your first project', slug: 'start/quickstart' },
+        { label: 'Try the demo', slug: 'start/quickstart' },
         { label: 'How it works', slug: 'start/concepts' },
       ] },
       { label: 'Everyday work', items: [
+        { label: 'Start your own project', slug: 'guides/initialize' },
         { label: 'Work with your coding agent', slug: 'guides/agents' },
-        { label: 'Start a specification', slug: 'guides/initialize' },
         { label: 'Work with guidelines', slug: 'guides/guidelines' },
+        { label: 'Combine repositories', slug: 'guides/workspaces' },
         { label: 'Move or attach a project', slug: 'guides/existing-projects' },
-        { label: 'Combine repositories and roles', slug: 'guides/workspaces' },
-        { label: 'Use your own Git hosting', slug: 'guides/self-hosting' },
         { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
+      ] },
+      { label: 'Advanced', items: [
+        { label: 'Roles', slug: 'guides/roles' },
+        { label: 'Pin guidelines', slug: 'guides/pinning' },
+        { label: 'Use your own Git hosting', slug: 'guides/self-hosting' },
       ] },
       { label: 'Reference', items: [
         { label: 'Commands', slug: 'reference/commands' },

@@ -23,9 +23,9 @@
   <a href="https://yveslaurentcreton.github.io/CretSpec/start/quickstart/">Quick start</a>
 </p>
 
-CretSpec is a small native CLI that clones your **spec, code repositories and shared AI guidelines** into one workspace. It prepares local instructions, skills and role-specific entry points for **Codex, Claude Code, GitHub Copilot in VS Code and Cursor**.
+CretSpec is a small native CLI. One command clones your **spec, code repositories and shared AI guidelines** into one folder and gives **Codex, Claude Code, GitHub Copilot in VS Code and Cursor** the same instructions and skills.
 
-Your spec defines the project. Each repository keeps its own Git history. Use your existing Git credentials on Windows, macOS or Linux.
+Without it, you clone every repository by hand, copy your rules into each one and watch the copies drift between projects and machines.
 
 ## Get started
 
@@ -36,34 +36,30 @@ Your spec defines the project. Each repository keeps its own Git history. Use yo
 | macOS | `brew install yveslaurentcreton/tap/cretspec` |
 | Windows / Linux | [Download a native executable](https://github.com/yveslaurentcreton/CretSpec/releases/latest) and follow the [installation guide](https://yveslaurentcreton.github.io/CretSpec/start/install/). |
 
-**2. Clone your project.** From your projects directory, use an existing CretSpec spec repository. Replace the example URL and project name with your own:
+**2. Try the demo.** It is public, so you need no account or key:
 
 ```sh
-cspec project clone https://github.com/your-account/Atlas-spec.git
-cd Atlas
-cspec project doctor
-cspec project open
+cspec project clone https://github.com/yveslaurentcreton/cretspec-demo-spec.git
 ```
 
-Your repositories are grouped in one folder:
+You get one folder:
 
 ```text
 Atlas/
-├── Atlas-spec/     # specification and project definition
-├── Atlas/          # product code
-└── ai-guidelines/  # shared AI guidelines and skills
+├── AGENTS.md                    # generated: what is here and which rules apply
+├── cretspec-demo-spec/          # the specification, with project.json
+├── cretspec-demo-app/           # the code
+└── cretspec-demo-guidelines/    # shared AI guidelines
 ```
 
-Selected agent instructions and skills are generated locally and excluded from Git. Open the workspace in your editor and start working.
+Start your agent in `Atlas/` and ask which rules apply. The instructions and skills are generated locally and never committed.
 
-A workspace can also add further AI guidelines, such as a customer's, and reference other CretSpec projects, in the precedence you choose. See [reference guidelines and projects](https://yveslaurentcreton.github.io/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects).
-
-Starting a new project? [Create a specification first](https://yveslaurentcreton.github.io/CretSpec/guides/initialize/).
+**3. Start your own project.** Three repositories and one small file are enough: [start your own project](https://yveslaurentcreton.github.io/CretSpec/guides/initialize/).
 
 ## Documentation
 
-**[The documentation site](https://yveslaurentcreton.github.io/CretSpec/)** covers setup, everyday workflows, configuration and the full CLI reference.
+**[The documentation site](https://yveslaurentcreton.github.io/CretSpec/)** covers setup, everyday work and the full reference.
 
-[How it works](https://yveslaurentcreton.github.io/CretSpec/start/concepts/) · [Working with agents and skills](https://yveslaurentcreton.github.io/CretSpec/guides/agents/) · [Combining repositories and roles](https://yveslaurentcreton.github.io/CretSpec/guides/workspaces/) · [CLI reference](https://yveslaurentcreton.github.io/CretSpec/reference/commands/)
+[How it works](https://yveslaurentcreton.github.io/CretSpec/start/concepts/) · [Working with your agent](https://yveslaurentcreton.github.io/CretSpec/guides/agents/) · [Combining repositories and guidelines](https://yveslaurentcreton.github.io/CretSpec/guides/workspaces/) · [CLI reference](https://yveslaurentcreton.github.io/CretSpec/reference/commands/)
 
 Bug reports and focused improvements are welcome. See [Contributing](CONTRIBUTING.md).

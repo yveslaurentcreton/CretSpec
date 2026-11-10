@@ -1,0 +1,257 @@
+---
+// The one picture of CretSpec: what you maintain, what it builds and what an agent gets.
+---
+
+<figure class="overview not-content">
+  <div class="flow">
+    <div class="stage">
+      <p class="label">You maintain</p>
+      <div class="box">
+        <strong>Spec repository</strong>
+        <span><code>project.json</code> lists the repositories. Holds the project's rules and skills.</span>
+      </div>
+      <div class="box">
+        <strong>Code repositories</strong>
+        <span>One or several, each with its own history.</span>
+      </div>
+      <div class="box">
+        <strong>AI guidelines</strong>
+        <span>Shared rules and skills: yours, plus a customer's if needed.</span>
+      </div>
+    </div>
+    <div class="arrow">
+      <code>cspec project<br />clone</code>
+      <svg viewBox="0 0 52 12" aria-hidden="true">
+        <line x1="0" y1="6" x2="44" y2="6" stroke="currentColor" stroke-width="1.5"></line>
+        <polygon points="43,1 52,6 43,11" fill="currentColor"></polygon>
+      </svg>
+      <small>once, then<br /><code>cspec sync</code></small>
+    </div>
+    <div class="stage">
+      <p class="label">CretSpec builds</p>
+      <pre class="tree">Atlas/
+├─ <span class="generated">AGENTS.md</span>
+├─ <span class="generated">.agents/skills/</span>
+├─ atlas-spec/
+├─ atlas/
+│  ├─ <span class="generated">AGENTS.md</span>
+│  ├─ <span class="generated">.agents/skills/</span>
+│  └─ src/ …
+├─ ai-guidelines/
+└─ acme-handbook/</pre>
+      <p class="key">
+        <span><i></i>your repositories</span>
+        <span class="generated"><i></i>generated, never committed</span>
+      </p>
+    </div>
+    <div class="arrow">
+      <small>reads</small>
+      <svg viewBox="0 0 52 12" aria-hidden="true">
+        <line x1="0" y1="6" x2="44" y2="6" stroke="currentColor" stroke-width="1.5"></line>
+        <polygon points="43,1 52,6 43,11" fill="currentColor"></polygon>
+      </svg>
+    </div>
+    <div class="stage">
+      <p class="label">Your agent knows</p>
+      <div class="box">
+        <strong>Which repositories exist</strong>
+        <span>and what each one is for.</span>
+      </div>
+      <div class="box">
+        <strong>Which rules apply</strong>
+        <span>in the folder it was started in.</span>
+      </div>
+      <div class="box">
+        <strong>Which skills it can use</strong>
+      </div>
+      <p class="agents">Claude Code, Codex, Copilot and Cursor all get this context.</p>
+    </div>
+  </div>
+
+  <div>
+    <p class="label">When two sources disagree, the first one wins</p>
+    <ol class="order">
+      <li class="first">Project rules</li>
+      <li>Your guidelines</li>
+      <li>Further guidelines</li>
+      <li>Referenced projects</li>
+    </ol>
+    <p class="note">Project rules always come first. <code>priority</code> reorders the others.</p>
+  </div>
+
+  <figcaption>
+    <strong>One definition, the same context everywhere.</strong> You keep the left side in Git. CretSpec builds the
+    middle. Every agent starts from the same instructions and skills, whichever folder it opens.
+  </figcaption>
+</figure>
+
+<style>
+  .overview {
+    display: grid;
+    gap: 1.25rem;
+    margin: 1.25rem 0 0;
+    container-type: inline-size;
+    color: var(--sl-color-white);
+  }
+  .label {
+    margin: 0 0 0.5rem;
+    font: 0.65rem/1.5 var(--sl-font-mono);
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+  }
+  .stage > .label {
+    white-space: nowrap;
+  }
+  .flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 6.25rem minmax(0, 1.15fr) 3.25rem minmax(0, 0.85fr);
+  }
+  .stage {
+    display: grid;
+    gap: 0.5rem;
+    align-content: start;
+    min-width: 0;
+  }
+  .box {
+    padding: 0.65rem 0.8rem;
+    background: var(--sl-color-gray-7, var(--sl-color-gray-6));
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 0.5rem;
+  }
+  .box strong {
+    display: block;
+    font-size: 0.85rem;
+    line-height: 1.3;
+  }
+  .box span {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--sl-color-gray-2);
+  }
+  code {
+    font-family: var(--sl-font-mono);
+    font-size: 0.92em;
+    background: none;
+    padding: 0;
+  }
+  .arrow {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 0.4rem;
+    padding: 1.6rem 0.25rem 0;
+    text-align: center;
+    color: var(--sl-color-gray-3);
+  }
+  .arrow > code {
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--sl-color-white);
+  }
+  .arrow small {
+    font-size: 0.7rem;
+    line-height: 1.3;
+  }
+  .arrow svg {
+    width: 2.75rem;
+    height: 0.75rem;
+  }
+  .tree {
+    margin: 0;
+    padding: 0.75rem 0.9rem;
+    overflow-x: auto;
+    background: var(--sl-color-gray-7, var(--sl-color-gray-6));
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 0.5rem;
+    font: 0.75rem/1.65 var(--sl-font-mono);
+    color: var(--sl-color-white);
+  }
+  .generated {
+    color: var(--sl-color-text-accent);
+  }
+  .tree .generated {
+    font-weight: 600;
+  }
+  .key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.9rem;
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--sl-color-gray-3);
+  }
+  .key i {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 0.4rem;
+    border-radius: 2px;
+    background: var(--sl-color-gray-3);
+  }
+  .key .generated i {
+    background: var(--sl-color-text-accent);
+  }
+  .agents,
+  .note {
+    margin: 0.15rem 0.1rem 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-3);
+  }
+  .order {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: order;
+  }
+  .order li {
+    counter-increment: order;
+    padding: 0.1rem 0.6rem;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+  .order li::before {
+    content: counter(order);
+    margin-right: 0.4rem;
+    font: 600 0.7rem var(--sl-font-mono);
+    color: var(--sl-color-gray-3);
+  }
+  .order .first {
+    border-color: var(--sl-color-text-accent);
+  }
+  .note {
+    margin-top: 0.5rem;
+  }
+  figcaption {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--sl-color-hairline-light);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-2);
+  }
+  figcaption strong {
+    color: var(--sl-color-white);
+  }
+  @container (max-width: 36rem) {
+    .flow {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .arrow {
+      padding: 0.75rem 0;
+    }
+    .arrow svg {
+      transform: rotate(90deg);
+      margin: 0.9rem 0;
+    }
+  }
+</style>

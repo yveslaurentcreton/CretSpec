@@ -35,6 +35,8 @@ Initializes a spec Git repository from guidelines templates. With `--code`, writ
 
 Defaults to working-tree mode on the remote default branch. `--ref` selects a branch; add `--lock --ref <ref>` to initialize pinned. Does not create remote repositories, commit or push. The wrapped syntax describes one command. See [initialization](/CretSpec/guides/initialize/).
 
+The guidelines must provide `vision.md`, `scope.md`, `requirements.md`, `architecture.md`, `decisions.md`, `roadmap.md`, `acceptance.md` and `project-rules.md` under `templates/spec/spec/`, and `profiles/<profile>.md` for each selected profile. Templates may include subdirectories and additional Markdown files. Hidden files and symlinks are rejected. The limit is 128 Markdown files, 128 KiB per file and eight subdirectory levels. Existing README and license files are preserved. Relative sources resolve against the spec's Git origin, or against its local path when it has no origin.
+
 ```text
 cspec project attach <spec> [--clone-missing]
 cspec project attach <code> <spec>

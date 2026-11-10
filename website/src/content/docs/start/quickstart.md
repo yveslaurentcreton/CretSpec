@@ -1,60 +1,59 @@
 ---
-title: Clone your first project
-description: Go from one spec repository to a complete local project.
+title: Try it in two minutes
+description: Clone the demo project and see what your coding agent gets.
 ---
 
-Start with [CretSpec and Git installed](/CretSpec/start/install/), Git access to all of the project's repositories, and a spec containing `project.json` and `spec/` (plus `guidelines.lock.json` if pinned). If you do not have that spec yet, [initialize one](/CretSpec/guides/initialize/).
+You need [CretSpec and Git](/CretSpec/start/install/). The demo is public, so you need no account or key.
 
-## 1. Choose your projects directory
+## 1. Clone the demo
 
-Run these commands in an ordinary directory outside existing Git repositories. For example, use `D:\cspec-projects` on Windows or `~/cspec-projects` on macOS/Linux.
-
-Set your GitHub owner or organization once. Replace `your-account` and `Atlas-spec` with your real owner and repository:
+Run this in the folder where you keep your projects:
 
 ```sh
-cspec config namespace your-account
-cspec project clone Atlas-spec
+cspec project clone https://github.com/yveslaurentcreton/cretspec-demo-spec.git
 ```
 
-Or pass a full source without configuring anything:
-
-```sh
-cspec project clone git@github.com:your-account/Atlas-spec.git
-```
-
-## 2. Inspect the project
-
-With a spec that names its product `Atlas` and points to a repository named `ai-guidelines` containing your shared AI guidelines, you get:
+CretSpec clones the specification, reads its `project.json` and clones the two repositories it names:
 
 ```text
 Atlas/
-├── AGENTS.md            generated workspace instructions
-├── Atlas-spec/
-│   ├── project.json
-│   ├── spec/
-│   └── .local/           ignored, generated context
-├── Atlas/               product code
-└── ai-guidelines/       editable AI guidelines
+├── AGENTS.md                    generated instructions
+├── cretspec-demo-spec/          the specification, with project.json
+├── cretspec-demo-app/           the code
+└── cretspec-demo-guidelines/    shared AI guidelines
 ```
 
-The outer directory groups your repositories and generated agent context. It has no project definition or Git repository of its own. Selected integrations also prepare skills and instruction entry points inside each repository; these local files are excluded from Git.
+## 2. See what your agent gets
 
-```sh
-cd Atlas
-cspec project doctor
-cspec project info
+Open `Atlas/AGENTS.md`. It names every repository and lists the rules that apply. An excerpt:
+
+```md wrap
+- Project definition and specification, repository `spec`: `cretspec-demo-spec`: What Atlas is, its rules and its skills.
+- Repository `cretspec-demo-app`: `cretspec-demo-app`: The Atlas greeter, a tiny command-line program.
+- Editable shared AI guidelines: `cretspec-demo-guidelines`
+
+Before project work, read the relevant active guidance and project rules. Project rules take precedence over shared guidance:
+
+- `cretspec-demo-guidelines/README.md`
+- `cretspec-demo-guidelines/guidelines/principles.md`
+- `cretspec-demo-spec/spec/project-rules.md`
 ```
 
-`doctor` checks without changing files. `info` shows JSON with paths, manifest, guidelines state and optional lock; it can prepare missing local context.
+Each repository gets its own `AGENTS.md` and the project's skills. These files are generated on your machine and never committed.
 
-## 3. Open your editor
+## 3. Ask your agent
 
-```sh
-cspec project open
-```
+Start Claude Code, Codex, Copilot or Cursor in `Atlas/` or in one of its repositories. Ask:
 
-This generates `Atlas-spec/.local/project.code-workspace` and asks the operating system to open it. Associate `.code-workspace` with VS Code or a compatible editor. With another editor, open the three folders directly. `cspec project open --print` generates and prints the file without launching an application.
+> Which rules apply in this project, and where do they come from?
 
-You can now edit and commit code, specification and shared guidelines in their respective repositories. Each keeps its own branches and history. Local guideline edits are active immediately in the default working-tree mode; run `cspec sync` after changing skills. Fetch and pull shared changes with Git when you want them.
+The agent answers from the demo's project rules and guidelines. Then let it use a skill:
 
-Your coding agent can now discover the prepared instructions and skills. Ask it to read the project's specification and active guidance. Follow [the agent workflow](/CretSpec/guides/agents/) to create project or shared skills and check their availability.
+> Add a greeting for the evening.
+
+`cspec project open` opens the three repositories as one VS Code workspace. `cspec project doctor` checks the project without changing it.
+
+## Next
+
+- [Start your own project](/CretSpec/guides/initialize/): three repositories and one small file.
+- [How it works](/CretSpec/start/concepts/), in one picture.

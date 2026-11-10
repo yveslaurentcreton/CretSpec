@@ -3,37 +3,35 @@ title: Move or attach a project
 description: Use existing clones and move projects without a registry.
 ---
 
-## Move a complete project
-
-Close programs holding files open, then move the outer project directory with your file manager. Keep code, spec and editable guidelines together. Run `cspec project doctor` from the new location. Regenerate the optional editor file with `cspec project open --print`.
-
-Relative references identify remote sources relative to the spec's origin. Moving local folders does not alter Git remotes. For purely local Git sources, those origins must still point to valid source repositories when you fetch or clone again.
-
 ## Attach existing clones
 
-Arrange your repositories as siblings inside an ordinary directory. In a version 1 project, the code directory must match `project.json`'s `name`. In a version 2 project, each repository uses its declared `path`. The guidelines directory uses its source basename. Origins must match the sources declared in the spec.
+Put the repositories next to each other in an ordinary folder. Each uses the folder that `project.json` declares, and the guidelines folder is named after its repository:
 
 ```text
 Atlas/
-├── Atlas-spec/
-├── Atlas/
+├── atlas-spec/
+├── atlas/
 └── ai-guidelines/
 ```
 
-From the outer directory:
+From that folder:
 
 ```sh
-cspec project attach Atlas-spec
+cspec project attach atlas-spec
 ```
 
-Attach validates placement and origins of every declared repository before writing anything, then prepares missing guideline context. It does not relocate your repositories, switch branches, rewrite remotes or discard local changes. Existing tracked agent instructions are preserved. A missing editable guidelines clone can be prepared from its declared source. A missing declared repository stops the command; add `--clone-missing` to clone it at its declared path. The version 1 form `cspec project attach Atlas Atlas-spec` still works.
+Attach checks the folder and origin of every declared repository before it writes anything. It never moves a repository, switches a branch, rewrites a remote or discards local changes, and it keeps instructions that a repository already tracks. A missing repository stops the command; add `--clone-missing` to clone it. A missing guidelines clone is prepared from its declared source.
 
-For a workspace with several repositories or a specification inside a code repository, see [combining repositories](/CretSpec/guides/workspaces/#clone-or-include-existing-clones).
+## Move a project
 
-## Choose a different outer directory name
+Close programs that hold files open, then move the outer folder. Keep the repositories together. Run `cspec project doctor` in the new location, and `cspec project open --print` to regenerate the editor file.
+
+Moving folders does not change Git remotes. Local Git sources must stay where those remotes point.
+
+## Choose another folder name
 
 ```sh
-cspec project clone Atlas-spec Atlas-review
+cspec project clone atlas-spec atlas-review
 ```
 
-Only the outer folder name changes. The code directory inside remains `Atlas`, as specified by the manifest. CretSpec requires a new destination to avoid mixing projects.
+Only the outer folder gets the other name. The destination must not exist yet.
