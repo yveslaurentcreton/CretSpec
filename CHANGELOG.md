@@ -5,41 +5,41 @@
 
 ### Bug Fixes
 
-* link the C runtime statically on Windows ([46db2ac](https://github.com/yveslaurentcreton/CretSpec/commit/46db2acc7b2be94c2fc7868e9cb0c2c9bc93d1ca))
+* link the C runtime statically on Windows ([33c50a8](https://github.com/yveslaurentcreton/CretSpec/commit/33c50a82cfaf2db1a1bd4c3ca905b3aa063b8c37))
 
 ## [0.8.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.7.0...v0.8.0) (2026-10-20)
 
 
 ### Features
 
-* reference guidelines and other projects as a tree ([5d96609](https://github.com/yveslaurentcreton/CretSpec/commit/5d96609ae4376d3242acafdb32d57c1c649898bd))
+* reference guidelines and other projects as a tree ([e0a32c9](https://github.com/yveslaurentcreton/CretSpec/commit/e0a32c93bc5cee59f6ccd364fcdf8361182f568b))
 
 ## [0.7.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.6.0...v0.7.0) (2026-10-19)
 
 
 ### Features
 
-* explain how to add a repository skill directory ([579bf77](https://github.com/yveslaurentcreton/CretSpec/commit/579bf77668bf5e9608a625e0b091bd729c3e8370))
-* use AGENTS.md as the only instruction entry point ([b4ac3ed](https://github.com/yveslaurentcreton/CretSpec/commit/b4ac3ed4c4439b37add06e47ff077bbf92580161))
+* explain how to add a repository skill directory ([28aeb58](https://github.com/yveslaurentcreton/CretSpec/commit/28aeb583d6588223a4800e0653a897223c5cebb5))
+* use AGENTS.md as the only instruction entry point ([f89df72](https://github.com/yveslaurentcreton/CretSpec/commit/f89df727767589a11463254999f5b2df3e8d801d))
 
 ## [0.6.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.5.0...v0.6.0) (2026-10-19)
 
 
 ### Features
 
-* let repositories own skills ([4fd015f](https://github.com/yveslaurentcreton/CretSpec/commit/4fd015f73d1e28ced7b887604a8b010e48af48b6))
+* let repositories own skills ([b3278a7](https://github.com/yveslaurentcreton/CretSpec/commit/b3278a7b0dd3cec31e5b19b08dee6c49a774e30f))
 
 
 ### Bug Fixes
 
-* build repository skill paths with native separators ([78e426d](https://github.com/yveslaurentcreton/CretSpec/commit/78e426d648da5d61f780581192ebe3dc3908e123))
+* build repository skill paths with native separators ([7011c70](https://github.com/yveslaurentcreton/CretSpec/commit/7011c70f2e3442029a592391055072aecd409c1e))
 
 ## [0.5.0](https://github.com/yveslaurentcreton/CretSpec/compare/v0.4.0...v0.5.0) (2026-10-17)
 
 
 ### Features
 
-* support multi-repository workspaces and agent roles ([6690005](https://github.com/yveslaurentcreton/CretSpec/commit/669000548811631e3a52ee5f61b1e08340d36580))
+* support multi-repository workspaces and agent roles ([e7c9f35](https://github.com/yveslaurentcreton/CretSpec/commit/e7c9f3595fef6cbc14b3fb84aa2b5d9137e662b7))
 
 ## [0.4.0](https://github.com/yveslaurentcreton/CretSpec/releases/tag/v0.4.0) (2026-09-18)
 
