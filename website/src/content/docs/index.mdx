@@ -1,10 +1,10 @@
 ---
 title: A project, ready to work.
-description: Clone the spec. Get the code, the context and the agreed way of working.
+description: One command clones your repositories and gives every coding agent the same instructions and skills.
 template: splash
 hero:
   title: A project, ready to work.
-  tagline: Clone one specification. Get the code, shared AI guidelines and local skills, ready for your coding agent.
+  tagline: One command clones your spec, code and AI guidelines, and gives every coding agent the same instructions and skills.
   image:
     html: |
       <div class="workspace-emblem" aria-hidden="true">
@@ -18,7 +18,7 @@ hero:
         <span class="emblem-footer">Independent repos. Shared context.</span>
       </div>
   actions:
-    - text: Get started
+    - text: Try the demo
       link: /CretSpec/start/quickstart/
       icon: right-arrow
     - text: How it works
@@ -26,27 +26,28 @@ hero:
       variant: minimal
 ---
 
-<div class="terminal not-content" aria-label="Example project clone and resulting folders">
+import Overview from '../../components/Overview.astro';
+
+<div class="terminal not-content" aria-label="Cloning the demo project and the folders it creates">
   <div class="terminal-bar">ONE COMMAND · ONE WORKSPACE</div>
   <div class="terminal-body">
-    <pre><span class="prompt">$ </span>cspec project clone Atlas-spec{`\n\n`}Atlas/{`\n`}├── Atlas-spec/     <span class="muted">the definition and specification</span>{`\n`}├── Atlas/          <span class="muted">the product code</span>{`\n`}└── ai-guidelines/  <span class="muted">editable AI guidelines</span></pre>
+    <pre><span class="prompt">$ </span>cspec project clone {'https://github.com/yveslaurentcreton/cretspec-demo-spec.git'}{`\n\n`}Atlas/{`\n`}├── AGENTS.md                    <span class="muted">what is here and which rules apply</span>{`\n`}├── cretspec-demo-spec/          <span class="muted">the specification</span>{`\n`}├── cretspec-demo-app/           <span class="muted">the code</span>{`\n`}└── cretspec-demo-guidelines/    <span class="muted">shared AI guidelines</span></pre>
   </div>
 </div>
 
-<div class="workflow not-content">
-  <article><span class="number">01 / DEFINE</span><h2>The spec leads.</h2><p>Repository locations, profile and guidelines selection live together in the specification repository.</p></article>
-  <article><span class="number">02 / WORK</span><h2>Keep Git familiar.</h2><p>Ordinary clones, one per repository. Use your editor, branches and existing authentication. Move the whole project when you need to.</p></article>
-  <article><span class="number">03 / IMPROVE</span><h2>Improve as you work.</h2><p>Edit shared guidelines from any project. Use local changes immediately, share them with Git, or pin a version when needed.</p></article>
-</div>
+## The problem
 
-## Small tool. Clear boundaries.
+A project is rarely one repository, and every coding agent wants its own instruction files. You clone the repositories by hand, copy your rules into each one, and watch the copies drift between projects and machines.
 
-CretSpec is a native command-line tool for Windows, macOS and Linux. It prepares your workspace and checks the connections between its repositories. Your specs remain readable Markdown and JSON.
+## What CretSpec does
 
-Local instructions and skills bring that context to your coding agent. Keep project skills in the spec, improve shared skills in your AI guidelines, and share changes with your normal Git workflow. [Explore the agent workflow](/CretSpec/guides/agents/).
+<Overview />
 
-One set of guidelines is only the start. Add a customer's AI guidelines next to your own, reference other CretSpec projects and decide which source takes precedence. [Reference guidelines and projects](/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects).
+## What you can do with it
 
-No application server, account or project registry to maintain. Git handles access to your repositories. Your team decides what goes into its guidelines.
+- **Keep a project together.** All its repositories sit in one folder, each with its own Git history. [Combine repositories](/CretSpec/guides/workspaces/).
+- **Reuse your rules and skills.** Write them once, use them in every project and improve them while you work. [Work with guidelines](/CretSpec/guides/guidelines/).
+- **Combine guidelines.** Add a customer's rules next to your own and decide which wins. [Reference guidelines](/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects).
+- **Build on other projects.** Reference a project that also uses CretSpec and get its context. [Reference projects](/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects).
 
-<p class="footnote">Native downloads are available. See the <a href="/CretSpec/start/install/">installation guide</a> for your platform and package-manager availability.</p>
+CretSpec is one native executable for Windows, macOS and Linux. It needs no server, account or registry: your repositories stay plain Git, and the generated files stay local. [Install it](/CretSpec/start/install/).

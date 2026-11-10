@@ -1,11 +1,69 @@
 ---
-title: Start a specification
-description: Create a project definition and Markdown specification from shared templates.
+title: Start your own project
+description: Three repositories and one small file are enough.
 ---
 
-Create the code repository and spec repository on your Git host first. Commit at least an initial file in the code repository so it has a branch to clone. Clone the new spec locally. CretSpec does not create remote repositories or commit on your behalf.
+A project needs a spec repository, your code and a guidelines repository. Each can start almost empty. The [demo](/CretSpec/start/quickstart/) is built exactly this way.
 
-Your AI guidelines repository's selected branch or pinned version must contain `profiles/<profile>.md` and these Markdown templates under `templates/spec/spec/`:
+## 1. Create the repositories
+
+Create three repositories on your Git host, or reuse the ones you have, and clone them next to each other:
+
+```text
+atlas-spec/       the specification
+atlas/            your code
+ai-guidelines/    the rules you share between projects
+```
+
+Write your shared rules in `ai-guidelines/README.md`, for example:
+
+```md
+# AI guidelines
+
+- Make the smallest change that solves the problem.
+- Run the tests before you say that a change works.
+```
+
+Every repository needs at least one commit. Commit and push.
+
+## 2. Describe the project
+
+In `atlas-spec`, create `project.json`:
+
+```json
+{
+  "schemaVersion": 3,
+  "name": "Atlas",
+  "repositories": [
+    { "name": "atlas", "url": "../atlas", "purpose": "The product code." }
+  ],
+  "guidelines": { "repository": "../ai-guidelines", "ref": "main" }
+}
+```
+
+A relative source such as `../atlas` means the repository with that name beside the spec on your Git host. Use a full URL for a repository elsewhere. The `purpose` is shown to your agents.
+
+Add a `spec/` folder with the rules of this project in `spec/project-rules.md`. Commit and push.
+
+## 3. Prepare the workspace
+
+The three clones already sit next to each other, so attach them in place:
+
+```sh
+cspec project attach atlas-spec
+```
+
+On another machine, one command clones everything:
+
+```sh
+cspec project clone git@github.com:your-account/atlas-spec.git
+```
+
+Start your agent and [work with it](/CretSpec/guides/agents/). Every field of `project.json` is in the [reference](/CretSpec/reference/manifest/).
+
+## Or start from templates
+
+`cspec project init` writes `project.json` for you and copies specification templates from your guidelines. The guidelines then need these files under `templates/spec/spec/`:
 
 ```text
 vision.md          scope.md
@@ -14,50 +72,12 @@ decisions.md       roadmap.md
 acceptance.md      project-rules.md
 ```
 
-Templates may include subdirectories and additional Markdown files. Hidden files and symlinks are rejected. The limit is 128 Markdown files, 128 KiB per file and eight subdirectory levels.
-
-## Initialize
-
-From the directory containing the spec clone, run this as one command on any platform. Replace repository names and profile with your own:
+Run it next to a cloned, still empty spec repository:
 
 ```sh
-cspec project init Atlas-spec --name Atlas --code ../Atlas --guidelines ../ai-guidelines --profile rust
+cspec project init atlas-spec --name Atlas --guidelines ../ai-guidelines --repository atlas
 ```
 
-Relative sources resolve against the spec's Git origin. Without an origin, they resolve against its local repository path; this is useful for a local trial.
+`--repository` reads the origin of the sibling clone `atlas`. Repeat it for more repositories, or write `<path>=<url>` for one that is not cloned yet. Edit the copied Markdown, add a `purpose` to each repository, then commit and push `project.json` and `spec/`.
 
-By default CretSpec uses the guidelines remote's default branch, copies its specification templates and writes `project.json` with `mode: "workingTree"`. No lock is created. Use `--ref <branch>` to select another branch. It validates the selected profile before writing. Existing README and license files are preserved. Existing definition files or a `spec/` directory cause initialization to stop.
-
-For a pinned project, add `--lock --ref v0.4.0` using your own published tag. This also creates `guidelines.lock.json` at the exact selected commit. `--ref` alone selects a branch; it does not enable pinning.
-
-## Several repositories
-
-To declare repositories by name ([schema version 2](/CretSpec/reference/manifest/#schema-version-2)), omit `--code` and repeat `--repository`:
-
-```sh
-cspec project init Atlas-spec --name Atlas --guidelines ../ai-guidelines \
-  --repository atlas --repository atlas-infra=git@github.com:your-account/atlas-infra.git
-```
-
-`--repository <path>` reads the origin of an existing sibling clone; `<path>=<url>` declares a repository that is not cloned yet. Each repository is named after its folder in lowercase. Edit `project.json` afterwards to add a `purpose`, a `profile` or a shorter name. Here `--profile` is optional and applies to the spec repository.
-
-When the specification already exists inside a code repository, initialize that repository with `--existing-spec`. It keeps the existing `spec/` directory unchanged and writes only `project.json`; no templates are copied. See [combining repositories](/CretSpec/guides/workspaces/).
-
-## Define your project
-
-Edit the copied Markdown to describe your product. Use your guidelines' method for requirements, milestones, stories, decisions and evidence. Review the manifest, then commit and push from the spec repository:
-
-```sh
-cd Atlas-spec
-git add project.json spec
-git commit -m "docs: define Atlas"
-git push
-```
-
-For pinned initialization, also stage `guidelines.lock.json`.
-
-From your projects directory, clone that spec with `cspec project clone <spec-source>`. An existing outer destination is never replaced; choose another destination for a trial.
-
-## Create a definition manually
-
-You can also author [project.json](/CretSpec/reference/manifest/) and `spec/` directly. Set a valid guidelines branch and `mode: "workingTree"` for the default workflow. CretSpec needs no special bootstrap service. Prefer the CLI for creating or removing an optional pin so the manifest and lock remain consistent.
+CretSpec never creates remote repositories and never commits for you. The [command reference](/CretSpec/reference/commands/#project-commands) lists every option, such as `--profile`, `--existing-spec` and `--lock`.

@@ -48,6 +48,8 @@ npm run build
 
 The site uses Astro/Starlight, static output and local search. Its build dependencies are separate from the distributed native CLI. Check navigation, examples, keyboard access and narrow screens when changing the site.
 
+Keep the start pages short: lead with the common path and one example, and put exceptions in the reference. The [quick start](/CretSpec/start/quickstart/) clones the public demo repositories `cretspec-demo-spec`, `cretspec-demo-app` and `cretspec-demo-guidelines`. Run its command after changing the project file format or the generated instructions.
+
 ## Contributions
 
 Bug reports, documentation improvements and focused fixes are welcome. Open an issue before starting a larger feature or changing the project protocol so the proposed direction can be discussed first. The project maintainer makes the final decisions on scope, merges and releases. Support and reviews are best effort; no response time is guaranteed.

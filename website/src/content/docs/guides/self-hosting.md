@@ -9,14 +9,14 @@ Supported sources include HTTPS, SSH URLs, SCP-style SSH references and local Gi
 
 ```sh
 cspec config namespace ssh://git@git.example.com/team
-cspec project clone Atlas-spec
+cspec project clone atlas-spec
 ```
 
 ```sh
-cspec project clone git@git.example.com:team/Atlas-spec.git
+cspec project clone git@git.example.com:team/atlas-spec.git
 ```
 
-Use a full source for a repository on another server. Relative sources such as `../Atlas` and `../ai-guidelines` resolve beside the spec's source. Remote specs cannot point to absolute local repositories.
+Use a full source for a repository on another server. Relative sources such as `../atlas` and `../ai-guidelines` resolve beside the spec's source. Remote specs cannot point to absolute local repositories.
 
 ## Authentication
 
@@ -26,7 +26,7 @@ CretSpec invokes system Git using argument arrays. It does not run scripts from 
 
 ## Local and offline use
 
-For a local trial, keep committed source repositories next to each other and pass an explicit path to the spec, such as `./sources/Atlas-spec`. Existing prepared projects can be inspected offline. Fetching unavailable remote commits naturally requires connectivity. Copying only the source files without their `.git` directories does not create a working project.
+For a local trial, keep committed source repositories next to each other and pass an explicit path to the spec, such as `./sources/atlas-spec`. Existing prepared projects can be inspected offline. Fetching unavailable remote commits naturally requires connectivity. Copying only the source files without their `.git` directories does not create a working project.
 
 ## Host these docs yourself
 

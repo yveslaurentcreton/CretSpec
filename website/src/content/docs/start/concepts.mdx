@@ -1,0 +1,43 @@
+---
+title: How it works
+description: Three kinds of repositories, one folder and the same context for every agent.
+---
+
+import Overview from '../../../components/Overview.astro';
+
+<Overview />
+
+## You maintain three kinds of repositories
+
+| Repository | Holds |
+| --- | --- |
+| Spec | `project.json`, which names the other repositories, and `spec/` with the project's rules, skills and documents |
+| Code | Your product: one repository or [several](/CretSpec/guides/workspaces/) |
+| AI guidelines | The rules and skills you share between projects |
+
+They stay ordinary Git repositories with their own history. The spec can also live [inside a code repository](/CretSpec/guides/workspaces/#the-spec-inside-a-code-repository).
+
+## CretSpec builds one folder
+
+`cspec project clone` puts the repositories next to each other. In the outer folder and in every repository it generates:
+
+- `AGENTS.md`, which names the repositories, their purpose and the rules that apply there;
+- the skills of the project and of the guidelines, in the folders your agents read.
+
+Generated files are copies. Git ignores them and you never edit them. Change a source, then run `cspec sync`.
+
+## The narrowest source wins
+
+Put knowledge where it belongs:
+
+| It applies to | Put it in |
+| --- | --- |
+| All your projects | The AI guidelines |
+| This project | The spec: `spec/project-rules.md` and `spec/skills/` |
+| One repository | That repository's own `AGENTS.md` and [skill directory](/CretSpec/reference/skills/#sources-and-validation) |
+
+Project rules take precedence over guidelines. When you add [further guidelines or other projects](/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects), you decide their order.
+
+## Nothing else to run
+
+CretSpec needs no server, account or registry. Commands find the project from the folder you are in, so you can move the outer folder freely. CretSpec never fetches or pulls an existing clone. You update your repositories with Git.

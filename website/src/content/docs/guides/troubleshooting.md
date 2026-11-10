@@ -28,7 +28,7 @@ Start with `cspec project doctor`. It checks the project without fetching or gen
 | Ref differs from the lock | Investigate a moved tag or inconsistent manifest/lock. Restore the agreed pair before adopting a different version. |
 | Cached snapshot modified | Preserve any work in that snapshot, then remove only that snapshot and run `project info`. |
 | `.local/` contains tracked files | Preserve needed content, remove it from Git's index, and keep `.local/` ignored. |
-| Interrupted update | Run `cspec guidelines recover`; see [recovery](/CretSpec/guides/guidelines/#recover-an-interrupted-update). |
+| Interrupted update | Run `cspec guidelines recover`; see [recovery](/CretSpec/guides/pinning/#recover-an-interrupted-update). |
 | Editor does not open | Use `project open --print`, then open the printed path manually. Linux desktop opening requires `xdg-open`. |
 | Missing or stale agent integrations | Run `cspec sync`; missing snapshots first require `cspec project info`. |
 | Edited or unmanaged generated file | Preserve its changes in the source or another file, remove only the reported generated output, then run `cspec sync`. |

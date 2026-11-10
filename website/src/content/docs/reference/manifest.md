@@ -26,7 +26,7 @@ Commit `project.json` in the spec repository root, alongside a `spec/` directory
 | `guidelines.ref` | Branch name in working-tree mode. In pinned mode, a locally resolvable tag or commit; prefer immutable tags. Starts with a letter/digit and contains only letters, digits, `.`, `_`, `/` or `-`. |
 | `guidelines.mode` | Optional `workingTree` or `pinned`. Without it, lock presence selects pinned mode; no lock selects working-tree mode. |
 | `profile` | Selects `profiles/<profile>.md` in the active guidelines source. Starts with a letter, followed by letters, digits, `_` or `-`. |
-| `agents` | Optional array of unique `codex`, `claude`, `copilot`, `cursor` values. Omission selects all four; `[]` disables generated integrations. Every selection uses the generated `AGENTS.md`; `claude` adds only `.claude/skills/`. See [integrations](/CretSpec/guides/agents/#choose-integrations). |
+| `agents` | Optional array of unique `codex`, `claude`, `copilot`, `cursor` values. Omission selects all four; `[]` disables generated integrations. Every selection uses the generated `AGENTS.md`; `claude` adds only `.claude/skills/`. See [integrations](/CretSpec/guides/agents/#choose-your-agents). |
 
 Spec and guidelines folder names come from their repository basenames, with one trailing `.git` removed. The code folder uses `name`. All three must be distinct, ignoring case, and use portable names.
 
@@ -77,7 +77,7 @@ Existing clones are compared by repository identity, not by exact text. SSH and 
 | `repositories[].skills` | Optional skill directory of this repository, relative to it, such as `spec/skills`. At most eight portable, non-hidden folder names separated by `/`. Its skills are committed with the repository. See [repository skills](/CretSpec/reference/skills/#sources-and-validation). Requires CretSpec 0.6.0 or later. |
 | `guidelines`, `agents` | Same as version 1. |
 
-Folder names of the spec, guidelines and every repository must be distinct, ignoring case. `roles` is reserved for generated [role entry points](/CretSpec/guides/workspaces/#define-roles). Two members cannot refer to the same repository. Every selected profile must exist in the active guidelines.
+Folder names of the spec, guidelines and every repository must be distinct, ignoring case. `roles` is reserved for generated [role entry points](/CretSpec/guides/roles/#define-roles). Two members cannot refer to the same repository. Every selected profile must exist in the active guidelines.
 
 ## Schema version 3
 
@@ -164,7 +164,7 @@ Atlas-spec/.local/
 └── agents.lock               process lock
 ```
 
-Role sources live in the spec's `spec/roles/<name>.md`. Their generated folders are created in the outer project root under `roles/<name>/`; see [roles](/CretSpec/guides/workspaces/#define-roles).
+Role sources live in the spec's `spec/roles/<name>.md`. Their generated folders are created in the outer project root under `roles/<name>/`; see [roles](/CretSpec/guides/roles/#define-roles).
 
 Working-tree mode still uses `.local/` for generated-file ownership and editor settings; it needs no guidelines snapshot. Unlocking preserves existing snapshots.
 

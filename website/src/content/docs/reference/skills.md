@@ -63,7 +63,28 @@ Investigate system status only when asked. Record decisions in the specification
 | `repositories` | Optional focus repositories by name, in priority order: the spec repository's name or a declared repository's name. |
 | `skills` | Optional active skill names. Omit to include every active skill; `[]` includes only the built-in workflow skill. |
 
-The Markdown body is required and holds the role's responsibilities. Unknown fields, unknown repositories or skills, and files other than `<name>.md` fail validation before generated outputs change. Each role file is limited to 128 KiB, and a project to 64 roles. Hidden files in `spec/roles/` are ignored. See [combining repositories and roles](/CretSpec/guides/workspaces/).
+The Markdown body is required and holds the role's responsibilities. Unknown fields, unknown repositories or skills, and files other than `<name>.md` fail validation before generated outputs change. Each role file is limited to 128 KiB, and a project to 64 roles. Hidden files in `spec/roles/` are ignored. See [roles](/CretSpec/guides/roles/).
+
+## Integrations
+
+The optional [`agents`](/CretSpec/reference/manifest/#projectjson) array selects the integrations. Each one is a set of local files:
+
+| Agent | Instruction entry point | Skill directory |
+| --- | --- | --- |
+| Codex | `AGENTS.md`, or a generated `AGENTS.override.md` preserving existing instructions | `.agents/skills/` |
+| Claude Code | `AGENTS.md`, read by Claude Code 2.1.277 or later; CretSpec generates no `CLAUDE.md` | `.claude/skills/` |
+| GitHub Copilot in VS Code | `.github/instructions/cspec.instructions.md` | Shares a generated skills directory |
+| Cursor | `.cursor/rules/cspec.mdc` | Shares a generated skills directory |
+
+CretSpec creates `.agents/skills/` when Codex is selected, `.claude/skills/` when Claude is selected, and only `.agents/skills/` when neither is selected. Copilot and Cursor can read both directories, so they may show duplicate skills when both exist; select only the integrations you use if this occurs. Opening the outer workspace may also surface skills from more than one repository; open the relevant repository to narrow discovery.
+
+Generated instructions and full skill bundles are regular files, so Windows needs no symlink privileges. They are excluded locally through Git's `info/exclude`. CretSpec does not change global agent settings.
+
+These are local filesystem integrations, not installations of the agents. Discovery and invocation depend on the host version, trust settings and skill support. The CLI tests generated files and paths; it does not certify that an installed editor loaded or invoked a skill. Remote or cloud agents need their own prepared workspace with access to the spec and guidelines, because locally excluded files are not delivered through the code repository.
+
+A missing or stale integration is repaired with `cspec sync`; a missing pinned snapshot first needs `cspec project info`. Conflicting override files, tracked generated files and edited outputs stop synchronization with an error that names the file. Preserve those edits in the appropriate source before removing the reported file and retrying.
+
+Host behavior is described in the official [Codex instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md), [Codex skills](https://learn.chatgpt.com/docs/build-skills), [Claude memory](https://code.claude.com/docs/en/memory), [Claude skills](https://code.claude.com/docs/en/skills), [VS Code skills](https://code.visualstudio.com/docs/agent-customization/agent-skills) and [Cursor skills](https://prod.cursor.com/docs/skills) documentation.
 
 ## Generated files
 
