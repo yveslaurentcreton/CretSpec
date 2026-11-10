@@ -86,13 +86,13 @@ Version 3 is version 2 plus a `type` for each entry in `repositories`. A `code` 
 ```json
 {
   "schemaVersion": 3,
-  "name": "atlas-workspace",
-  "specRepository": { "name": "atlas-workspace", "purpose": "Our specification for the customer." },
+  "name": "Atlas",
+  "specRepository": { "name": "atlas-spec", "purpose": "Our specification for the customer." },
   "repositories": [
-    { "name": "platform", "url": "git@ssh.dev.azure.com:v3/acme/Platform/platform", "purpose": "Infrastructure." },
-    { "name": "handbook", "type": "guidelines", "url": "git@ssh.dev.azure.com:v3/acme/Platform/handbook",
-      "ref": "main", "instructions": ["README.md", "standards/dotnet.md"], "scope": ["platform"] },
-    { "name": "acme-billing", "type": "project", "url": "git@ssh.dev.azure.com:v3/acme/Platform/acme-billing",
+    { "name": "atlas", "url": "git@github.com:your-account/atlas.git", "purpose": "The product code." },
+    { "name": "acme-handbook", "type": "guidelines", "url": "git@ssh.dev.azure.com:v3/acme/Platform/handbook",
+      "ref": "main", "instructions": ["README.md", "standards/dotnet.md"], "scope": ["atlas"] },
+    { "name": "acme-billing", "type": "project", "url": "git@ssh.dev.azure.com:v3/acme/Platform/billing",
       "purpose": "The customer's application, with its own specification." }
   ],
   "guidelines": { "repository": "git@github.com:your-account/ai-guidelines.git", "ref": "main" },
@@ -125,7 +125,7 @@ Clone and `attach --clone-missing` clone the whole tree into the workspace root,
 
 ### Precedence
 
-Each project's own rules come first, followed by its references in priority and declaration order. A referenced project is one entry in that order and expands into its own rules and references. The default order for the example is: the workspace's project rules, `ai-guidelines`, `handbook`, then `acme-billing` with its own rules and guidelines. The consumer can thus override or extend a referenced project's rules in its own project rules.
+Each project's own rules come first, followed by its references in priority and declaration order. A referenced project is one entry in that order and expands into its own rules and references. The default order for the example is: the workspace's project rules, `ai-guidelines`, `acme-handbook`, then `acme-billing` with its own rules and guidelines. The consumer can thus override or extend a referenced project's rules in its own project rules.
 
 The same order decides skills with the same name: the source with the highest precedence wins, and sync and doctor warn which skill overrides which. Name collisions between the workspace's own spec, repository skill directories and its own `guidelines` still stop synchronization, as in version 2.
 

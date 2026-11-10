@@ -92,16 +92,16 @@ Let repositories commit only `AGENTS.md`. Every supported agent reads it, so Cre
 
 ## Reference guidelines and other projects
 
-A workspace can build on knowledge that others own. Suppose you specify work for a customer that keeps its own AI guidelines, a technical handbook and an application with its own CretSpec specification. The customer's developers open the application's project directly. You keep your own specification for the customer and want everything in one workspace.
+A workspace can build on knowledge that others own. Suppose you build Atlas for a customer, Acme, that keeps its own AI guidelines, a technical handbook and an application with its own CretSpec specification. The customer's developers open the application's project directly. You keep your own specification for the customer and want everything in one workspace.
 
 [Schema version 3](/CretSpec/reference/manifest/#schema-version-3) gives each repository entry a `type`:
 
 ```json
 "repositories": [
-  { "name": "platform", "url": "git@ssh.dev.azure.com:v3/acme/Platform/platform" },
-  { "name": "handbook", "type": "guidelines", "url": "git@ssh.dev.azure.com:v3/acme/Platform/handbook",
+  { "name": "atlas", "url": "git@github.com:your-account/atlas.git" },
+  { "name": "acme-handbook", "type": "guidelines", "url": "git@ssh.dev.azure.com:v3/acme/Platform/handbook",
     "ref": "main", "instructions": ["README.md"] },
-  { "name": "acme-billing", "type": "project", "url": "git@ssh.dev.azure.com:v3/acme/Platform/acme-billing" }
+  { "name": "acme-billing", "type": "project", "url": "git@ssh.dev.azure.com:v3/acme/Platform/billing" }
 ]
 ```
 
@@ -110,13 +110,14 @@ Run `cspec project migrate` on an existing version 2 project first. `cspec proje
 The result stays one ordinary folder:
 
 ```text
-atlas-workspace/
-├── atlas-workspace/  # your specification, contains project.json
-├── ai-guidelines/      # your guidelines
-├── platform/
-├── handbook/           # guidelines reference
-├── acme-billing/             # referenced project: its spec and code
-└── acme-guidelines/             # guidelines that acme-billing declares
+Atlas/
+├── AGENTS.md          # generated overview for every agent
+├── atlas-spec/        # your specification, contains project.json
+├── atlas/             # your code
+├── ai-guidelines/     # your guidelines
+├── acme-handbook/     # the customer's guidelines
+├── acme-billing/      # referenced project: its spec and code
+└── acme-guidelines/   # guidelines that acme-billing declares
 ```
 
 ### What agents read
@@ -124,16 +125,16 @@ atlas-workspace/
 Every generated `AGENTS.md` lists its sources from highest to lowest precedence. Your project rules always come first; you can override or extend a customer's rules there. By default the references follow in declaration order, with your own guidelines first:
 
 ```text
-1. Project rules: `atlas-workspace/spec/project-rules.md`
+1. Project rules: `atlas-spec/spec/project-rules.md`
 2. Shared guidelines `ai-guidelines`: ...
-3. Guidelines `handbook`: `handbook/README.md`
-4. Referenced project `acme-billing` (applies in `acme-billing`, `acme-guidelines`): read its context file `atlas-workspace/.local/context/acme-billing.md`
+3. Guidelines `acme-handbook`: `acme-handbook/README.md`
+4. Referenced project `acme-billing` (applies in `acme-billing`, `acme-guidelines`): read its context file `atlas-spec/.local/context/acme-billing.md`
 ```
 
-A referenced project's guidance applies in its own folders. In `platform/AGENTS.md` the `acme-billing` entry is absent; in `acme-billing/AGENTS.md` it is present without the folder list. The workspace root lists everything with the folders each entry applies in. The context file contains exactly what `acme-billing` gives when it is opened on its own, so it stays as its owners intended, and `AGENTS.md` stays short however deep the tree is.
+A referenced project's guidance applies in its own folders. In `atlas/AGENTS.md` the `acme-billing` entry is absent; in `acme-billing/AGENTS.md` it is present without the folder list. The workspace root lists everything with the folders each entry applies in. The context file contains exactly what `acme-billing` gives when it is opened on its own, so it stays as its owners intended, and `AGENTS.md` stays short however deep the tree is.
 
 - `priority` changes the order. `"priority": 1` on `acme-billing` puts it, with everything it brings, above your own guidelines, for example when its .NET profile should lead in its code.
-- `scope` limits a guidelines reference to named repositories, for example `"scope": ["platform"]` for an infrastructure handbook.
+- `scope` limits a guidelines reference to named repositories, for example `"scope": ["atlas"]` for a handbook that only covers your code.
 - Skills of every source are distributed to every folder. When two sources define the same skill name, the one with the highest precedence wins and sync and doctor say which skill was overridden.
 
 Commands run inside a referenced project's folder still act on your workspace. When the customer's developers clone `acme-billing` themselves, they see only its own context. Nothing from your specification appears there.

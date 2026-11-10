@@ -56,6 +56,8 @@ Atlas/
 
 Selected agent instructions and skills are generated locally and excluded from Git. Open the workspace in your editor and start working.
 
+A workspace can also add further AI guidelines, such as a customer's, and reference other CretSpec projects, in the precedence you choose. See [reference guidelines and projects](https://yveslaurentcreton.github.io/CretSpec/guides/workspaces/#reference-guidelines-and-other-projects).
+
 Starting a new project? [Create a specification first](https://yveslaurentcreton.github.io/CretSpec/guides/initialize/).
 
 ## Documentation
